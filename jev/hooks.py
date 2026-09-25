@@ -197,7 +197,13 @@ def triage(out: str, cwd: str, scratch: str | None) -> str | None:
         return None
     c = _client("hook:triage", "JEV_TRIAGE_TIMEOUT", "8")
     clusters, notes, u = cluster(c, items, threshold=0.70)
-    parts = [f"{len(cl['members'])}× {first_line(items[cl['rep']], 70)}" for cl in clusters[:4]]
+    def gist(text: str) -> str:  # the error line when there is one, else the header
+        for ln in text.splitlines():
+            t = ln.strip()
+            if re.match(r"^(E\s+|\w*(Error|Exception)\b|error:|FAIL)", t):
+                return t.lstrip("E ").strip()[:70]
+        return first_line(text, 70)
+    parts = [f"{len(cl['members'])}× {gist(items[cl['rep']])}" for cl in clusters[:4]]
     more = f" +{len(clusters) - 4} more" if len(clusters) > 4 else ""
     line = f"jev triage: {len(items)} failures, {len(clusters)} cause(s): " + " · ".join(parts) + more
     try:
