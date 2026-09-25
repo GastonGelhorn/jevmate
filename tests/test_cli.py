@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import unittest
 from unittest import mock
 
@@ -14,7 +15,7 @@ def run(argv, transport=None, stdin=""):
     out, err = io.StringIO(), io.StringIO()
     with mock.patch("jev.transport.Transport.request", lambda self, *a, **k: t.request(*a, **k)), \
             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-            mock.patch("sys.stdin", io.StringIO(stdin)):
+            mock.patch("sys.stdin", io.StringIO(stdin)), mock.patch.dict("os.environ", {}):  # hooks may set JEV_AGENT; keep it per run
         code = main(argv)
     return code, out.getvalue(), err.getvalue(), t
 
@@ -204,6 +205,80 @@ class Commands(unittest.TestCase):
         self.assertIn("jev", out)
         code, out, _, _ = run(["statusline", "uninstall", "--settings", str(st)])
         self.assertEqual(json.loads(st.read_text())["statusLine"]["command"], "echo old")
+
+    def test_session_q_and_saved_questions(self):
+        home = settings.HOME
+        code, out, err, _ = run(["session", "--plain", "--cwd", str(home)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("nothing decided", out)
+        rows = [{"text": f"yes {i}", "label": "y"} for i in range(6)] + [{"text": f"no {i}", "label": "n"} for i in range(6)]
+        (home / "l.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        code, out, err, _ = run(["tune", "--labels", str(home / "l.jsonl"), "--positive", "y", "-Q", "Is `candidate` a yes?", "--save", "isyes", "--json"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("saved as 'isyes'", err)
+        code, out, _, _ = run(["q", "list"])
+        self.assertIn("isyes", out)
+        code, out, _, _ = run(["q", "show", "isyes", "--json"])
+        spec = json.loads(out)
+        self.assertEqual(spec["question"], "Is `candidate` a yes?")
+        self.assertIn("measured", spec)
+        code, out, _, _ = run(["yes", "--q", "isyes", "-s", "yes indeed"])
+        self.assertEqual(code, 0)
+        code, out, err, _ = run(["rank", "--q", "isyes", "--query", "q", "yes a", "no b", "maybe c", "--json"])
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertEqual([x["candidate"] for x in r["uncertain"]], ["maybe c"])
+        code, out, err, _ = run(["batch", "--q", "isyes", "--input", "-", "--text-lines"], stdin="yes\n")
+        self.assertEqual(code, 0, err)
+        self.assertIn("isyes", json.loads(out.splitlines()[0])["answers"])
+        code, out, _, _ = run(["q", "save", "manual", "-Q", "Is `candidate` x?", "--threshold", "0.6", "--band", "0.5", "0.7"])
+        self.assertEqual(code, 0)
+        code, out, _, _ = run(["q", "rm", "manual"])
+        self.assertEqual(code, 0)
+        code, _, _, _ = run(["yes", "--q", "manual", "-s", "x"])
+        self.assertEqual(code, 2)
+        code, out, _, _ = run(["session", "--plain", "--cwd", os.getcwd(), "--json"])
+        self.assertGreater(json.loads(out)["jev"]["requests"], 0)
+
+    def test_auth_backend_detection_and_config_backend(self):
+        home = settings.HOME
+        code, out, _, _ = run(["auth", "set", "sk-or-" + "v1-0123456789abcdef0123456789abcdef"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("backend openrouter", out)
+        self.assertEqual(settings.config()["base_url"], "https://openrouter.ai/api")
+        self.assertEqual(oct(settings.KEY_FILE.stat().st_mode & 0o777), "0o600")
+        code, out, _, _ = run(["config", "set", "backend", "typesafe"])
+        self.assertEqual(settings.config()["model"], "jev-latest")
+        code, out, _, _ = run(["config", "unset", "backend"])
+        self.assertNotIn("base_url", settings.config())
+        code, out, _, _ = run(["config", "set", "backend", "nope"])
+        self.assertEqual(code, 2)
+        code, out, _, _ = run(["config"])
+        self.assertIn("backend", out)
+
+    def test_hook_session_start_tags_and_configures(self):
+        home = settings.HOME
+        env_file = home / "env.sh"
+        env = {"CLAUDE_ENV_FILE": str(env_file), "CLAUDE_PLUGIN_OPTION_API_KEY": "sk-or-" + "v1-abcdefabcdefabcdefabcdef", "CLAUDE_PLUGIN_OPTION_BACKEND": ""}
+        payload = {"session_id": "deadbeef-1234", "source": "startup", "cwd": str(home), "transcript_path": str(home / "t.jsonl"), "hook_event_name": "SessionStart"}
+        with mock.patch.dict("os.environ", env):
+            code, out, _, _ = run(["hook", "session-start"], stdin=json.dumps(payload))
+            code2, out2, _, _ = run(["hook", "session-start"], stdin=json.dumps({**payload, "source": "resume"}))
+        self.assertEqual(code, 0)
+        self.assertIn("additionalContext", out)
+        self.assertEqual(out2, "", "no context line on resume")
+        self.assertEqual(env_file.read_text().count("JEV_SESSION"), 1, "written once")
+        self.assertIn('export JEV_SESSION="session:deadbeef"', env_file.read_text())
+        self.assertEqual(settings.KEY_FILE.read_text().strip(), "sk-or-" + "v1-abcdefabcdefabcdefabcdef")
+        self.assertEqual(settings.config()["base_url"], "https://openrouter.ai/api")
+        marker = json.loads((settings.SESSIONS_DIR / "deadbeef-1234.json").read_text())
+        self.assertEqual(marker["transcript"], str(home / "t.jsonl"))
+
+    def test_usage_by_session(self):
+        with mock.patch.dict("os.environ", {"JEV_SESSION": "session:abc12345"}):
+            run(["yes", "q", "-s", "yes"])
+        code, out, _, _ = run(["usage", "--by", "session", "--json"])
+        self.assertIn("session:abc12345", json.loads(out))
 
     def test_watch_once_without_transcript(self):
         code, out, _, _ = run(["watch", "--once", "--cwd", str(settings.HOME)])
