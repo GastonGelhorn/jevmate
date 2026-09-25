@@ -3,7 +3,14 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start", "timeout": 5 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook route 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook route", "timeout": 6 }
         ]
       }
     ],
@@ -11,15 +18,36 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook guard", "timeout": 10 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook guard 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook guard", "timeout": 10 }
         ]
       }
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook after-bash 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook after-bash", "timeout": 25 }
+        ]
+      },
+      {
         "matcher": "WebFetch|WebSearch",
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook screen", "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook screen 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook screen", "timeout": 15 }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook after-bash 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook after-bash", "timeout": 25 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook stop 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook stop", "timeout": 15 }
         ]
       }
     ]

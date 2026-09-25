@@ -1,13 +1,27 @@
 {
   "name": "jev",
   "displayName": "jev",
-  "version": "1.1.0",
-  "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on WebFetch, and a per-session view of what it kept out of the context.",
-  "author": { "name": "Gaston Gelhorn" },
+  "version": "1.2.0",
+  "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on fetched content, a red-suite triage the moment a test command fails, a routing hint per prompt, and a per-session view of what it kept out of the context.",
+  "author": {
+    "name": "Gaston Gelhorn"
+  },
   "homepage": "https://github.com/OWNER/jev-cli",
   "repository": "https://github.com/OWNER/jev-cli",
   "license": "MIT",
-  "keywords": ["decisions", "calibration", "triage", "classification", "ranking", "tests", "code-review", "hooks", "mcp", "typesafe", "openrouter"],
+  "keywords": [
+    "decisions",
+    "calibration",
+    "triage",
+    "classification",
+    "ranking",
+    "tests",
+    "code-review",
+    "hooks",
+    "mcp",
+    "typesafe",
+    "openrouter"
+  ],
   "userConfig": {
     "api_key": {
       "type": "string",
@@ -24,14 +38,32 @@
     "guard_mode": {
       "type": "string",
       "title": "Bash guard",
-      "description": "ask: prompt before a command that looks destructive (p >= 0.60). deny: also deny at p >= 0.90 where no prompt can appear. off: no guard.",
+      "description": "ask: prompt before a command that looks destructive (p >= 0.60). deny: also deny at p >= 0.90 where no prompt can appear. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
       "default": "ask"
     },
     "screen_mode": {
       "type": "string",
       "title": "WebFetch screen",
-      "description": "on: add a line of context when fetched text reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
+      "description": "on: add a line of context when fetched content (WebFetch, WebSearch, curl, gh) reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
       "default": "on"
+    },
+    "triage_mode": {
+      "type": "string",
+      "title": "Red-suite triage",
+      "description": "on: when a test command fails, group the failures by cause and say which the current diff caused, in one line of context. off: nothing.",
+      "default": "on"
+    },
+    "route_mode": {
+      "type": "string",
+      "title": "Routing hint",
+      "description": "on: rate each prompt (lookup / routine / judgment / hard) and, for routine ones, hint that a cheaper subagent or lower effort is enough. off: nothing.",
+      "default": "on"
+    },
+    "honesty_mode": {
+      "type": "string",
+      "title": "Honesty check (opt-in)",
+      "description": "on: when a reply claims tests, a build or a check passed but no such command ran this turn, ask Claude to run it before stopping. off (default): nothing.",
+      "default": "off"
     }
   }
 }
