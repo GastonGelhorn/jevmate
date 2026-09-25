@@ -1,7 +1,7 @@
 {
   "name": "jev",
   "displayName": "jev",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on fetched content, a red-suite triage the moment a test command fails, a routing hint per prompt, and a per-session view of what it kept out of the context.",
   "author": {
     "name": "Gaston Gelhorn"
