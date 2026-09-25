@@ -4,9 +4,11 @@
 .claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, screen)
 .claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jev@jev-cli`
 skills/jev/SKILL.md             the skill Claude invokes on its own
-skills/{sift,tests,review,triage,stats,setup}/SKILL.md   /jev:… for the person; never auto-invoked
+skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jev:… for the person; never auto-invoked
 agents/band-reader.md           jev:band-reader, a Haiku agent that labels the uncertain band in its own context
-hooks/hooks.json                SessionStart, PreToolUse Bash (guard), PostToolUse WebFetch|WebSearch (screen)
+agents/reviewer.md              jev:reviewer, a Sonnet agent that reads the hunks jev diff rated risky
+hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in)
+jev/packs/core.json             ten questions with their thresholds: jev q install core
 .mcp.json                       `jev mcp`: decide, rank, sift, tests, diff, cluster, session as tools
 bin/jev                         on the Bash tool's PATH while the plugin is enabled
 evals/                          six cases for `claude plugin eval`
@@ -26,6 +28,8 @@ Do not run both: the plugin already wires its hooks.
 
 ## What each hook does
 
+Six events. All fail open; the bars come from the plugin's settings (`/config`) or the environment.
+
 - **SessionStart**: writes `JEV_SESSION=session:<id>` into `CLAUDE_ENV_FILE`, so every `jev` call
   the agent makes from Bash is attributed to the session in the ledger; turns the plugin's key and
   backend settings into the key file and config, once; remembers the session's transcript path so
@@ -35,10 +39,28 @@ Do not run both: the plugin already wires its hooks.
   p >= 0.90 only in bypassPermissions mode or with `guard_mode: deny`.
 - **PostToolUse on WebFetch / WebSearch** (`screen`): one yes/no over the returned text; at
   p >= 0.55 one line of context says the text reads like instructions aimed at an agent.
+- **PostToolUse and PostToolUseFailure on Bash** (`after-bash`): records that the command ran (the
+  guard's memory: an identical command is not asked about twice in a session; `jev hooks tune`
+  reads the pairs); when a test command fails, cuts the output with the runner's own markers,
+  groups the failures by cause (`jev cluster`) and, if there is a diff, says which it caused and
+  which look flaky, in one line, and saves the output to the scratchpad for `jev cluster -i`;
+  when the command fetched remote content (curl, wget, gh pr/issue/api), screens it like WebFetch.
+- **UserPromptSubmit** (`route`): rates the prompt on a four-level rubric (lookup, routine,
+  judgment, hard). For a routine prompt at confidence >= 0.55 it adds one line suggesting a cheaper
+  subagent or lower effort. A plugin cannot switch the session's model; this is a calibrated hint.
+  Prompts under 40 characters and slash commands are skipped.
+- **Stop** (`stop`, opt-in via `honesty_mode`): when the reply claims tests, a build or a check
+  passed (p >= 0.70) and no command this turn ran one (p <= 0.30), it asks Claude to run it before
+  stopping. Never twice in a row (`stop_hook_active`).
 
-The bars: `guard_mode` and `screen_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`,
-`JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every decision is one JSON line in
-`hooks.log` (`jev hooks status`).
+Project rules: `.jev/guard.json` with `{"safe": [regex…], "ask": [regex…]}`. `safe` skips the
+guard's call; `ask` asks without one. `jev hooks tune` reads the guard's asks and what followed
+(allowed, declined) and proposes this machine's ask bar once it has twenty pairs.
+
+The bars: `guard_mode`, `screen_mode`, `triage_mode`, `route_mode`, `honesty_mode` in the plugin's
+settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
+decision is one JSON line in `hooks.log` (`jev hooks status`). On Windows the hook commands fall
+back to `py -3` when `python3` is not on the PATH.
 
 ## MCP tools
 
