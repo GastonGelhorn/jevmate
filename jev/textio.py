@@ -52,13 +52,14 @@ def implicit_stdin(timeout: float = 1.5) -> str | None:
     writer would otherwise hang the command. `-` forces a blocking read."""
     if sys.stdin is None or sys.stdin.isatty():
         return None
-    try:
-        import select
-        ready, _, _ = select.select([sys.stdin], [], [], timeout)
-        if not ready:
-            return None
-    except (OSError, ValueError):
-        pass
+    if sys.platform != "win32":  # select() only works on sockets there; read blocking instead
+        try:
+            import select
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            if not ready:
+                return None
+        except (OSError, ValueError):
+            pass
     return sys.stdin.read()
 
 
