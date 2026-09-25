@@ -31,7 +31,7 @@ def register(sub) -> None:
                                     "(0.90) and only in bypassPermissions mode or with JEV_GUARD_MODE=deny, where no prompt can appear. "
                                     "screen, on WebFetch after it returns: one line of context when p(instructions aimed at an agent) >= "
                                     "JEV_SCREEN_WARN (0.55). Both fail open and log.")
-    hk.add_argument("action", nargs="?", choices=["status", "install", "uninstall"], default="status")
+    hk.add_argument("action", nargs="?", choices=["status", "install", "uninstall", "tune"], default="status")
     hk.add_argument("--settings", help=f"settings file to edit (default {DEFAULT_SETTINGS}; .claude/settings.json for one project)")
     hk.add_argument("--no-guard", action="store_true", help="install only the WebFetch screen")
     hk.add_argument("--no-screen", action="store_true", help="install only the Bash guard")
@@ -116,6 +116,8 @@ def cmd_hooks(args) -> int:
     cfg = _read_settings(path)
     hooks = cfg.get("hooks") or {}
     have = {ev: any(_ours_hook(e) for e in (hooks.get(ev) or [])) for ev in ("PreToolUse", "PostToolUse")}
+    if args.action == "tune":
+        return hooks_tune(args)
     if args.action == "status":
         print(f"{path}" + ("" if path.exists() else " (does not exist)"))
         print(f"  guard  (PreToolUse Bash -> ask)        {'installed' if have['PreToolUse'] else 'not installed'}")
@@ -156,6 +158,54 @@ def cmd_hooks(args) -> int:
         print("  `jev hooks status` tails the decisions; the JEV_GUARD_* / JEV_SCREEN_* variables move the bars")
     else:
         print(f"removed the jev hooks from {path}")
+    return 0
+
+
+def hooks_tune(args) -> int:
+    """What the guard asked, and what the person did next. A command that ran after an `ask` was
+    allowed: the ask was friction. An `ask` that nothing followed within ten minutes was declined:
+    the ask was right. Enough pairs, and the ask bar for this machine is a measurement."""
+    from datetime import datetime, timedelta
+    from .tune import metrics, sweep
+    rows = ledger.hook_rows(None)
+    guards = [r for r in rows if r.get("hook") == "guard" and isinstance(r.get("p"), (int, float))]
+    ran = [r for r in rows if r.get("hook") == "ran"]
+    last_ts = rows[-1]["ts"] if rows else ""
+    pairs, allowed_after_ask, declined_after_ask, silent_ran = [], [], [], 0
+    for g in guards:
+        t0 = g["ts"]
+        try:
+            horizon = (datetime.fromisoformat(t0) + timedelta(minutes=10)).isoformat(timespec="seconds")
+        except ValueError:
+            continue
+        followed = any(r.get("cmd") == g.get("cmd") and t0 <= r["ts"] <= horizon and (not g.get("agent") or r.get("agent") in (None, "", g.get("agent"))) for r in ran)
+        if g.get("decision") in ("ask", "deny"):
+            if followed:
+                allowed_after_ask.append(g["p"])
+                pairs.append((float(g["p"]), False))
+            elif last_ts > horizon:  # the session went on and the command never ran
+                declined_after_ask.append(g["p"])
+                pairs.append((float(g["p"]), True))
+        elif followed:
+            silent_ran += 1
+            pairs.append((float(g["p"]), False))
+    print(f"guard decisions with a p: {len(guards)} · asked: {len(allowed_after_ask) + len(declined_after_ask)} "
+          f"(allowed after the ask: {len(allowed_after_ask)}, declined: {len(declined_after_ask)}) · silent and ran: {silent_ran}")
+    if not ran:
+        print("no `ran` rows yet: the after-bash hook (plugin 1.2+) records them; come back after a session or two")
+        return 0
+    if len(pairs) < 20 or not declined_after_ask:
+        print(f"{len(pairs)} pairs" + (", no declines yet" if not declined_after_ask else "") + ": too few to move the bar; the current ask bar stays "
+              f"{settings.option('guard_ask', 'JEV_GUARD_ASK', '0.60')}")
+        if allowed_after_ask:
+            print(f"  p of the commands you allowed anyway: " + " ".join(f"{p:.2f}" for p in sorted(allowed_after_ask)[-12:]))
+        return 0
+    best = sweep(pairs, "balanced")
+    at_now = metrics(pairs, float(settings.option("guard_ask", "JEV_GUARD_ASK", "0.60")))
+    print(f"ask bar now {at_now['t']:.2f}: would ask {at_now['tp'] + at_now['fp']} times, {at_now['fp']} of them on commands you allowed")
+    print(f"proposed  {best['t']:.2f}: would ask {best['tp'] + best['fp']} times, {best['fp']} on allowed commands, missing {best['fn']} you declined "
+          f"(balanced accuracy {best['balanced']:.0%})")
+    print(f"  set it: JEV_GUARD_ASK={best['t']:.2f} in the environment, or the plugin's guard settings; .jev/guard.json `safe` patterns skip the call entirely")
     return 0
 
 

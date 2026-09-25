@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 import time
 
 from ..errors import UsageError
@@ -301,7 +302,9 @@ def cmd_label(args) -> int:
         return 0
 
     try:
-        tty = open("/dev/tty")
+        tty = open("/dev/tty") if sys.platform != "win32" else sys.stdin
+        if tty is sys.stdin and not sys.stdin.isatty():
+            raise OSError
     except OSError:
         raise UsageError("labelling needs a terminal. An agent runs `jev label … --pick N`, reads the rows and writes the labels itself")
     labelled, k, history = 0, 0, []

@@ -45,6 +45,7 @@ def register(sub) -> None:
     b.add_argument("--text-lines", action="store_true", help="every line is a plain-text state")
     b.add_argument("--echo", action="store_true", help="include the state in each output row")
     b.add_argument("--out", "-o", help="write JSONL here instead of stdout")
+    b.add_argument("--resume", action="store_true", help="with --out: skip rows already answered in that file and append the rest")
     b.add_argument("--concurrency", type=int, default=8)
     b.add_argument("--abstain", nargs=2, type=float, metavar=("LO", "HI"), help="mark rows whose yes/no lands in [LO, HI] as uncertain")
     b.add_argument("--uncertain-out", help="also write the uncertain rows here")
@@ -144,7 +145,25 @@ def cmd_batch(args) -> int:
         raise UsageError("no input rows")
     c = client_for(args, "batch")
     band = parse_band(args.abstain)
-    out_f = open(out_path(args.out), "w") if args.out else sys.stdout
+    done: set[int] = set()
+    if args.resume:
+        if not args.out:
+            raise UsageError("--resume needs --out FILE, the file it resumes")
+        try:
+            for ln in out_path(args.out).read_text().splitlines():
+                try:
+                    row = json.loads(ln)
+                    if "error" not in row:
+                        done.add(int(row["line"]))
+                except (ValueError, KeyError, TypeError):
+                    continue
+        except FileNotFoundError:
+            pass
+        items = [it for it in items if it[0] not in done]
+        if not items:
+            eprint(f"· nothing left to do: {len(done)} rows already in {args.out}")
+            return 0
+    out_f = open(out_path(args.out), "a" if args.resume else "w") if args.out else sys.stdout
     unc_f = open(out_path(args.uncertain_out), "w") if args.uncertain_out else None
     tokens = errors = uncertain = cached = 0
     t0 = time.monotonic()
@@ -187,6 +206,6 @@ def cmd_batch(args) -> int:
         if unc_f:
             unc_f.close()
     ms = (time.monotonic() - t0) * 1000
-    eprint(footer(f"{len(items)} rows · {errors} errors" + (f" · {uncertain} uncertain" if band else ""), len(items), cached, tokens, ms,
-                  f"wrote {args.out}" if args.out else "", f"uncertain -> {args.uncertain_out}" if unc_f else ""))
+    eprint(footer(f"{len(items)} rows · {errors} errors" + (f" · {uncertain} uncertain" if band else "") + (f" · {len(done)} skipped (done before)" if done else ""),
+                  len(items), cached, tokens, ms, f"wrote {args.out}" if args.out else "", f"uncertain -> {args.uncertain_out}" if unc_f else ""))
     return 0 if errors == 0 else 4

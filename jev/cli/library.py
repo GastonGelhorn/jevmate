@@ -14,8 +14,9 @@ def register(sub) -> None:
                        description="A saved question is a phrasing plus what `jev tune` measured for it: threshold, band, the model it was tuned "
                                    "on. `jev yes --q NAME`, `jev rank --q NAME`, `jev batch --q NAME`, `jev label --q NAME` and `decide_many(rows, "
                                    "library.load(NAME))` reuse it. Project questions live in .jev/questions/, personal ones in the jev home.")
-    q.add_argument("action", nargs="?", choices=["list", "show", "save", "rm"], default="list")
+    q.add_argument("action", nargs="?", choices=["list", "show", "save", "rm", "packs", "install"], default="list")
     q.add_argument("name", nargs="?")
+    q.add_argument("--force", action="store_true", help="install: overwrite questions that already exist")
     q.add_argument("--question", "-Q", help="save: the phrasing (names the item `candidate`, or the state's fields)")
     q.add_argument("--threshold", type=float, help="save: p at which the answer is yes")
     q.add_argument("--band", nargs=2, type=float, metavar=("LO", "HI"), help="save: the band handed to a reader")
@@ -52,8 +53,20 @@ def cmd_q(args) -> int:
             t = f"{r['threshold']:.2f}" if r.get("threshold") is not None else "-"
             print(f"{r['name']:<20} {r['scope']:<8} {t:>5} {band:<12} {meas:<20} {truncate(r['question'], 70)}")
         return 0
+    if args.action == "packs":
+        for pk in library.packs():
+            print(f"{pk['name']:<10} {len(pk['questions'])} questions · {truncate(pk['description'], 110)}")
+            for qn, spec in pk["questions"].items():
+                m = spec.get("measured")
+                print(f"    {qn:<20} t={spec.get('threshold', '-')}  {'measured on ' + str(m['n']) + ' rows' if m else 'starting point'}")
+        return 0
     if not args.name:
         raise UsageError(f"jev q {args.action} NAME")
+    if args.action == "install":
+        installed, skipped = library.install_pack(args.name, project=args.project, force=args.force)
+        print(f"installed {len(installed)}: {', '.join(installed) or '-'}" + (f" · kept {len(skipped)} already present (--force replaces): {', '.join(skipped)}" if skipped else ""))
+        print("use: jev rank --q <name> --query … --candidates-file …   ·   jev yes --q <name> -s …   ·   jev q show <name>")
+        return 0
     if args.action == "show":
         spec = library.load(args.name)
         dump(args, spec)

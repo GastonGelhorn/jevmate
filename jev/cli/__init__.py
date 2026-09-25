@@ -81,7 +81,7 @@ def main(argv=None) -> int:
         print(f"jev {VERSION}")
         return 0
     # Claude Code runs these on every tool call and every state change: no parser, no command modules.
-    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen", "session-start"):
+    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen", "after-bash", "route", "stop", "session-start"):
         from ..hooks import run
         return run(argv[1])
     if argv == ["statusline", "render"]:
