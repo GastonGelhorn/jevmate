@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.0
+
+A Claude Code plugin, and the repo is its own marketplace (`claude plugin marketplace add
+OWNER/jev-cli`, `claude plugin install jev@jev-cli`): the skill, six slash skills (`/jev:sift`,
+`/jev:tests`, `/jev:review`, `/jev:triage`, `/jev:stats`, `/jev:setup`), the `jev:band-reader`
+agent (Haiku) for the uncertain band, the hooks wired by the plugin with a SessionStart hook that
+tags the agent's own `jev` calls per session, an MCP server (`jev mcp`: decide, ask, rank, sift,
+tests, diff, cluster, session), user configuration for the key and the backend, and an eval suite.
+
+New commands: `jev session` (the three measured rows for this session), `jev q` (saved questions:
+`jev tune --save NAME`, then `--q NAME` on yes / rank / batch / label / stream), `jev mcp`,
+`jev config set backend typesafe|openrouter`, `jev usage --by session`. `jev auth set` recognises
+an OpenRouter key and configures the backend. The analysis behind sift, tests, diff, failures and
+cluster moved into `jev.analysis`, usable from Python; session metrics into `jev.metrics`.
+
 ## 1.0.0
 
 First release. A package (`jev/`) with a launcher, a skill file for Claude Code, Codex and
