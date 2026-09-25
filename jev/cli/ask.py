@@ -10,7 +10,7 @@ from ..questions import choice, level_name, noul, parse_kv, parse_value, score
 from ..render import emit
 from ..settings import MAX_SCORE_LEVELS
 from ..textio import implicit_stdin, read_source
-from ._common import RAW, add_common, add_question_args, add_state_args, build_state, client_for, questions_from_args
+from ._common import RAW, add_common, add_question_args, add_saved_arg, add_state_args, build_state, client_for, questions_from_args, use_saved
 from .docs import example
 
 
@@ -27,7 +27,8 @@ def register(sub) -> None:
 
     y = sub.add_parser("yes", help="one yes/no -> P(yes); exit 0 yes, 1 no",
                        description="One noul question. Prints `<p> yes|no|uncertain`. Exit 0 when p >= --threshold (or >= the top of --band), else 1.")
-    y.add_argument("instructions", help="the question, phrased so that high means yes")
+    y.add_argument("instructions", nargs="?", help="the question, phrased so that high means yes (or --q NAME)")
+    add_saved_arg(y)
     y.add_argument("--true", help="what a yes means (optional criteria)")
     y.add_argument("--false", help="what a no means (optional criteria)")
     y.add_argument("--threshold", type=float, default=0.5)
@@ -89,6 +90,9 @@ def cmd_ask(args) -> int:
 
 
 def cmd_yes(args) -> int:
+    use_saved(args, "instructions")
+    if not args.instructions:
+        raise UsageError("give the question, or --q NAME")
     state = build_state(args)
     c = client_for(args, "yes")
     resp = c.ask(state, {"q": noul(parse_value(args.instructions), args.true, args.false)})

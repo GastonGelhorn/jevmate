@@ -149,6 +149,21 @@ def read_candidates(args) -> list:
     raise UsageError("no candidates: pass them as arguments, with --candidates-file (lines or a JSON array), or on stdin")
 
 
+def add_saved_arg(p) -> None:
+    p.add_argument("--q", dest="saved", metavar="NAME", help="use a saved question (jev q list): its phrasing, threshold, band and pinned model fill in what you do not pass")
+
+
+def use_saved(args, question_attr: str = "instructions"):
+    """Apply --q NAME to the arguments; returns the spec, or None."""
+    name = getattr(args, "saved", None)
+    if not name:
+        return None
+    from ..library import apply, load
+    spec = load(name)
+    apply(spec, args, question_attr=question_attr)
+    return spec
+
+
 def client_for(args, label: str, record: bool = True):
     from ..client import Client
     return Client(getattr(args, "api_key", None), getattr(args, "model", None), timeout=getattr(args, "timeout", 30.0),

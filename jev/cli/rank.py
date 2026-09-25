@@ -11,7 +11,7 @@ from ..grading import grade, in_band, parse_band, write_uncertain
 from ..questions import parse_value
 from ..render import dump, eprint, footer, truncate
 from ..textio import read_source
-from ._common import RAW, add_common, add_grading_args, add_question_args, client_for, out_path, questions_from_args, read_candidates
+from ._common import RAW, add_common, add_grading_args, add_question_args, add_saved_arg, client_for, out_path, questions_from_args, read_candidates, use_saved
 from .docs import example
 
 
@@ -24,6 +24,7 @@ def register(sub) -> None:
     rk.add_argument("--candidates-file", help="one candidate per line, or a .json array")
     rk.add_argument("candidates", nargs="*", help="candidates as arguments (or on stdin)")
     rk.add_argument("--instructions", help="the question, naming `candidate` and `query`: 'Does `candidate` answer `query`?'")
+    add_saved_arg(rk)
     rk.add_argument("--levels", nargs="+", metavar="LEVEL", help="a score rubric instead of yes/no")
     rk.add_argument("--context", help="shared extra state (text, JSON, or @file), available as `context`")
     rk.add_argument("--top", type=int, help="keep the best N")
@@ -47,12 +48,14 @@ def register(sub) -> None:
     b.add_argument("--concurrency", type=int, default=8)
     b.add_argument("--abstain", nargs=2, type=float, metavar=("LO", "HI"), help="mark rows whose yes/no lands in [LO, HI] as uncertain")
     b.add_argument("--uncertain-out", help="also write the uncertain rows here")
+    add_saved_arg(b)
     add_question_args(b)
     add_common(b)
     b.set_defaults(fn=cmd_batch)
 
 
 def cmd_rank(args) -> int:
+    use_saved(args, "instructions")
     cands = read_candidates(args)
     if not cands:
         raise UsageError("no candidates")
@@ -126,7 +129,16 @@ def _rows(raw: str, args) -> list[tuple[int, object, object]]:
 
 
 def cmd_batch(args) -> int:
-    qs = questions_from_args(args)
+    spec = use_saved(args, "_saved_question")
+    if spec:
+        from ..questions import noul
+        qs = {spec["name"]: noul(spec["question"], spec.get("true"), spec.get("false"))}
+        try:
+            qs.update(questions_from_args(args))
+        except UsageError:
+            pass
+    else:
+        qs = questions_from_args(args)
     items = _rows(read_source(args.input, "input"), args)
     if not items:
         raise UsageError("no input rows")

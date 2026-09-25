@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import time
 from pathlib import Path
 
 from .. import settings
+from ..analysis import sift, sift_candidates
 from ..decide import SCAFFOLD
 from ..errors import UsageError
-from ..grading import grade
 from ..questions import parse_value
 from ..render import dump, eprint, footer
-from ..textio import est_tokens, implicit_stdin, read_head, read_source, split_functions, walk
+from ..textio import est_tokens, implicit_stdin, read_source
 from ._common import RAW, add_common, add_grading_args, client_for, out_path
 from .docs import example
-
-HIT_RE = re.compile(r"^(.+?):(\d+):(.*)$")
 
 
 def register(sub) -> None:
@@ -44,7 +40,7 @@ def register(sub) -> None:
     sc = sub.add_parser("scaffold", help="write a script with a three-way semantic `if` over a JSONL of rows",
                         description="Prints (or --out writes) a Python script that runs one yes/no over every row with decide_many() and "
                                     "files them into yes / no / review, the review file being the rows jev could not decide. "
-                                    "Edit QUESTION, THRESHOLD and BAND (from `jev tune`) and SRC.")
+                                    "Edit QUESTION, THRESHOLD and BAND (from `jev tune`) and SRC, or point it at a saved question.")
     sc.add_argument("name", nargs="?", help="script name, also its label in `jev usage` (default decide_rows)")
     sc.add_argument("--out", help="write here instead of stdout (mode 755)")
     sc.add_argument("--force", action="store_true")
@@ -61,75 +57,24 @@ def cmd_sift(args) -> int:
     lines = [ln.rstrip("\n") for ln in lines if ln.strip()]
     if not lines and not args.paths:
         raise UsageError("nothing to sift: give paths, --files-from FILE|-, or pipe `rg -l …` (or `rg -n …` with --grep) on stdin")
-
-    cands: list[dict] = []
-    meta: list[tuple[str, int]] = []  # display, estimated tokens to read it
-    if args.grep:
-        hits: dict[str, list[str]] = {}
-        for ln in lines:
-            m = HIT_RE.match(ln)
-            if m:
-                hits.setdefault(m.group(1), []).append(f"{m.group(2)}: {m.group(3).strip()}")
-            else:
-                hits.setdefault(ln, [])
-        for path, matches in hits.items():
-            excerpt = "\n".join(matches)[: args.head_chars]
-            cands.append({"path": path, "hits": len(matches), "matches": excerpt})
-            try:
-                size = os.stat(path).st_size
-            except OSError:
-                size = len(excerpt)
-            meta.append((f"{path}  ({len(matches)} hit{'s' if len(matches) != 1 else ''})", est_tokens(size)))
-    else:
-        files = walk(args.paths + lines)
-        if len(files) > 2000:
-            eprint(f"jev: sift: {len(files)} files; each costs about {est_tokens(args.head_chars):,} tokens to grade, consider narrowing")
-        for pth in files:
-            if args.functions:
-                txt = read_head(pth, 400_000)
-                if txt is None:
-                    continue
-                for line, name, src in split_functions(txt):
-                    cands.append({"path": str(pth), "line": line, "name": name, "source": src[: args.head_chars]})
-                    meta.append((f"{pth}:{line}  {name or '(top)'}", est_tokens(len(src))))
-            else:
-                head = read_head(pth, args.head_chars)
-                if head is None:
-                    continue
-                cands.append({"path": str(pth), "excerpt": head})
-                meta.append((str(pth), est_tokens(pth.stat().st_size)))
-    if not cands:
-        raise UsageError("no readable text files among the inputs")
-
+    cands, meta = sift_candidates(args.paths, lines, grep=args.grep, functions=args.functions, head_chars=args.head_chars)
+    if len(cands) > 2000:
+        eprint(f"jev: sift: {len(cands)} candidates; each costs about {est_tokens(args.head_chars):,} tokens to grade, consider narrowing")
     c = client_for(args, "sift")
-    question = args.instructions or "Is `candidate` worth reading to find `query`? Judge from its path and the excerpt."
     t0 = time.monotonic()
-    g = grade(c, cands, question, parse_value(args.query), context=parse_value(args.context) if args.context else None,
-              chunk_chars=args.chunk_chars, chunk_size=args.chunk_size, concurrency=args.concurrency)
-    results = sorted(g.results, key=lambda r: -r["p"])
-    if args.min is not None:
-        results = [r for r in results if r["p"] >= args.min]
-    if args.top:
-        results = results[: args.top]
-    rows, spent, cut_at = [], 0, None
-    for k, r in enumerate(results):
-        display, tokens = meta[r["i"]]
-        spent += tokens
-        if args.budget_tokens and cut_at is None and spent > args.budget_tokens:
-            cut_at = k
-        rows.append({"p": r["p"], "tokens": tokens, "display": display, "cumulative_tokens": spent,
-                     **{kk: vv for kk, vv in cands[r["i"]].items() if kk in ("path", "line", "name", "hits")}})
+    rows, cut_at, u = sift(c, parse_value(args.query), cands, meta, instructions=args.instructions,
+                           context=parse_value(args.context) if args.context else None, top=args.top, min_p=args.min, budget_tokens=args.budget_tokens,
+                           chunk_chars=args.chunk_chars, chunk_size=args.chunk_size, concurrency=args.concurrency)
     ms = (time.monotonic() - t0) * 1000
     if args.json:
-        dump(args, {"results": rows, "n": len(cands), "budget_tokens": args.budget_tokens, "cut_at": cut_at, "requests": g.requests,
-                    "cached_requests": g.cached, "usage": {"input_tokens": g.input_tokens}, "ms": round(ms)})
+        dump(args, {"results": rows, "n": len(cands), "budget_tokens": args.budget_tokens, "cut_at": cut_at, **u.as_dict(), "ms": round(ms)})
         return 0
     for k, r in enumerate(rows):
         if cut_at is not None and k == cut_at:
             print(f"--- budget of {args.budget_tokens:,} tokens reached after {k} item(s); {len(rows) - k} more below ---")
         print(f"{r['p']:.3f}  {r['tokens']:>7,}  {r['display']}")
     within = rows[:cut_at] if cut_at is not None else rows
-    eprint(footer(f"{len(cands)} candidate(s)", g.requests, g.cached, g.input_tokens, ms,
+    eprint(footer(f"{len(cands)} candidate(s)", u.requests, u.cached, u.input_tokens, ms,
                   f"reading the top {len(within)} costs ~{within[-1]['cumulative_tokens']:,} tokens" if within else ""))
     return 0
 

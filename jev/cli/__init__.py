@@ -35,9 +35,12 @@ a change, a red suite, a stream
   tail -f x.log | jev stream 'Is `candidate` …?'    semantic grep, batched
 
 claude code
-  jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch
+  jev session                   this session: what went through jev, what that would have cost to read, what it saved
+  jev watch                     the same, live, for the desktop app's Terminal panel   ·   /jev:stats in the chat
+  jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch (plain CLI installs; the plugin wires its own)
   jev statusline install        the session's cost next to what jev decided, under the prompt (terminal CLI)
-  jev watch                     the same, live, for the desktop app's Terminal panel
+  jev q list|save|show          saved questions: a phrasing with its measured threshold and band (jev tune --save NAME; --q NAME anywhere)
+  jev mcp                       the same decisions as MCP tools (the plugin runs it)
 
   jev guide [topic]   jev examples [name]   jev usage   jev cost   jev cache   jev config   jev doctor   jev auth
 
@@ -53,7 +56,8 @@ COMMANDS = {
     "cluster": "debug", "tests": "debug", "diff": "debug", "failures": "debug", "stream": "debug",
     "auth": "admin", "doctor": "admin", "models": "admin", "config": "admin", "cost": "admin", "cache": "admin",
     "schema": "admin", "usage": "admin", "version": "admin",
-    "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude",
+    "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude",
+    "q": "library", "mcp": "library",
     "guide": "docs", "examples": "docs", "docs": "docs",
 }
 
@@ -77,7 +81,7 @@ def main(argv=None) -> int:
         print(f"jev {VERSION}")
         return 0
     # Claude Code runs these on every tool call and every state change: no parser, no command modules.
-    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen"):
+    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen", "session-start"):
         from ..hooks import run
         return run(argv[1])
     if argv == ["statusline", "render"]:

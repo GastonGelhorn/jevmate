@@ -27,6 +27,7 @@ CONFIG_KEYS = {
     "cache": ("cache", str, "on | off: the local answer cache (default on; --no-cache skips it once)"),
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
+    "backend": ("backend", str, "typesafe | openrouter: sets base_url and model together"),
 }
 
 
@@ -34,6 +35,7 @@ def register(sub) -> None:
     au = sub.add_parser("auth", help="set | status | clear the API key")
     au.add_argument("action", choices=["set", "status", "clear"], nargs="?", default="status")
     au.add_argument("key", nargs="?")
+    au.add_argument("--backend", choices=list(settings.BACKENDS), help="set: also configure this backend (default: OpenRouter for an sk-or- key, otherwise unchanged)")
     add_common(au)
     au.set_defaults(fn=cmd_auth)
 
@@ -77,7 +79,7 @@ def register(sub) -> None:
     u = sub.add_parser("usage", help="spend, tokens, decisions, latency, throughput, credits and budget, from the local ledger",
                        description=f"Every request appends one row of metadata to {settings.USAGE_FILE}. The default view is the summary; "
                                    "--by breaks it down; --tail lists recent requests.")
-    u.add_argument("--by", choices=["day", "hour", "cmd", "agent", "model"], help="a breakdown table")
+    u.add_argument("--by", choices=["day", "hour", "cmd", "agent", "session", "model"], help="a breakdown table")
     u.add_argument("--days", type=int, default=14, help="days for --by day (default 14)")
     u.add_argument("--tail", type=int, metavar="N", help="the last N requests, with request ids")
     u.add_argument("--since", help="rows at or after YYYY-MM-DD or an ISO timestamp")
@@ -101,6 +103,13 @@ def cmd_auth(args) -> int:
             f.write(key.strip() + "\n")
         os.chmod(settings.KEY_FILE, 0o600)
         print(f"stored {settings.mask(key)} in {settings.KEY_FILE} (mode 0600)")
+        backend = args.backend or ("openrouter" if key.startswith("sk-or-") and not settings.config().get("base_url") else None)
+        if backend:
+            url, model = settings.BACKENDS[backend]
+            cfg = dict(settings.config())
+            cfg.update(base_url=url, model=model)
+            settings.save_config(cfg)
+            print(f"backend {backend}: {url} · model {model}  (jev config set backend typesafe|openrouter to change)")
         return 0
     if args.action == "clear":
         try:
@@ -136,7 +145,7 @@ def cmd_doctor(args) -> int:
     step("home", lambda: f"{settings.HOME}" + (" (legacy location)" if settings.HOME.name == "typesafe" else ""))
     step("key", lambda: "{} from {}".format(*(lambda k, s: (settings.mask(k), s))(*settings.resolve_key(args.api_key))))
     base = settings.base_url()
-    step("backend", lambda: f"{base} · model {args.model or settings.default_model()}" + ("" if base == settings.VENDOR_URL else "  <- not the vendor's host"))
+    step("backend", lambda: f"{settings.backend_name()} · {base} · model {args.model or settings.default_model()}")
     c = client_for(args, "doctor", record=False)
     step("GET /v1/models", lambda: f"{[m.get('name') for m in c.models().get('models', [])]} in {c.last_ms:.0f} ms", optional=True)
 
@@ -180,13 +189,28 @@ def cmd_config(args) -> int:
             return 0
         print(f"{settings.CONFIG_FILE}" + ("" if settings.CONFIG_FILE.exists() else " (not created yet)"))
         for k, (real, _, desc) in CONFIG_KEYS.items():
-            print(f"  {k:<15} {str(cfg.get(real, '-')):<28} {desc}")
+            shown = settings.backend_name() if k == "backend" else str(cfg.get(real, "-"))
+            print(f"  {k:<15} {shown:<28} {desc}")
         extra = {k: v for k, v in cfg.items() if k not in {r for r, _, _ in CONFIG_KEYS.values()}}
         if extra:
             print(f"  other keys      {', '.join(extra)}")
         return 0
     if not args.key or args.key not in CONFIG_KEYS:
         raise UsageError(f"jev config {args.action} <{'|'.join(CONFIG_KEYS)}>" + (" <value>" if args.action == "set" else ""))
+    if args.key == "backend":
+        if args.action == "unset":
+            cfg.pop("base_url", None)
+            cfg.pop("model", None)
+            settings.save_config(cfg)
+            print("backend reset to the vendor's host")
+            return 0
+        if args.value not in settings.BACKENDS:
+            raise UsageError(f"jev config set backend <{'|'.join(settings.BACKENDS)}>")
+        url, model = settings.BACKENDS[args.value]
+        cfg.update(base_url=url, model=model)
+        settings.save_config(cfg)
+        print(f"backend {args.value}: {url} · model {model}")
+        return 0
     real, typ, _ = CONFIG_KEYS[args.key]
     if args.action == "unset":
         cfg.pop(real, None)
@@ -334,6 +358,10 @@ def cmd_usage(args) -> int:
         elif args.by == "agent":
             for r in rows:
                 groups.setdefault(name_of(r), []).append(r)
+        elif args.by == "session":
+            for r in rows:
+                tag = str(r.get("agent") or "")
+                groups.setdefault(tag if tag.startswith("session:") else "(no session tag)", []).append(r)
         else:
             for r in rows:
                 groups.setdefault(str(r.get(args.by) or "?"), []).append(r)

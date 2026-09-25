@@ -12,7 +12,7 @@ from ..questions import parse_value
 from ..render import dump, eprint, footer, truncate
 from ..settings import cost_usd
 from ..textio import read_source
-from ._common import RAW, add_common, add_grading_args, client_for, out_path
+from ._common import RAW, add_common, add_grading_args, add_saved_arg, client_for, out_path, use_saved
 from .docs import example
 
 BOOLISH = {"true": True, "false": False, "yes": True, "no": False, "y": True, "n": False, "1": True, "0": False, "t": True, "f": False}
@@ -36,6 +36,8 @@ def register(sub) -> None:
     tn.add_argument("--bins", type=int, default=10, help="reliability table bins (default 10)")
     tn.add_argument("--report", help="write the full JSON report, per-row p included, here")
     tn.add_argument("--errors", type=int, metavar="N", help="list the winner's N most confident errors; the label is the first suspect")
+    tn.add_argument("--save", metavar="NAME", help="save the winner as a question: phrasing, threshold, band, model (jev q list; --q NAME anywhere)")
+    tn.add_argument("--project", action="store_true", help="with --save: into the project's .jev/questions/")
     add_grading_args(tn)
     add_common(tn)
     tn.set_defaults(fn=cmd_tune)
@@ -50,6 +52,7 @@ def register(sub) -> None:
     lb.add_argument("--positive", default="yes", help="label written for [y] (default yes)")
     lb.add_argument("--negative", default="no", help="label written for [n] (default no)")
     lb.add_argument("--question", "-Q", help="grade first with this question (naming `candidate`) so the uncertain rows come first")
+    add_saved_arg(lb)
     lb.add_argument("--band", nargs=2, type=float, metavar=("LO", "HI"), help="rows with p inside the band come first (from `jev tune`)")
     lb.add_argument("--query", help="shared `query` field, if the question names it")
     lb.add_argument("--pick", type=int, metavar="N", help="print the N most useful unlabelled rows as JSONL and exit")
@@ -174,6 +177,16 @@ def cmd_tune(args) -> int:
             "usage": {"requests": tot_req, "cached_requests": tot_cached, "input_tokens": tot_in, "usd": round(cost_usd(tot_in), 6)}, "ms": round(ms)}
     if args.report:
         out_path(args.report).write_text(json.dumps(full, indent=2, ensure_ascii=False) + "\n")
+    if args.save:
+        from datetime import date
+        from ..library import save
+        w0, b0 = report[0], report[0]["best"]
+        saved_to = save(args.save, {"question": w0["question"], "threshold": b0["t"], "band": [w0["abstention"][1]["lo"], w0["abstention"][1]["hi"]],
+                                    "model": c.model, "query": args.query, "kind": "rank",
+                                    "measured": {"n": len(texts), "accuracy": round(b0["accuracy"], 4), "balanced": round(b0["balanced"], 4),
+                                                 "f1": round(b0["f1"], 4), "ece": w0["ece"], "optimize": args.optimize, "date": date.today().isoformat()}},
+                        project=args.project)
+        eprint(f"· saved as {args.save!r} -> {saved_to} (jev yes/rank/batch --q {args.save})")
     if args.json:
         if not args.verbose:
             for r in full["questions"]:
@@ -243,6 +256,7 @@ def _items(raw: str, text_key: str) -> list[str]:
 
 
 def cmd_label(args) -> int:
+    use_saved(args, "question")
     items = _items(read_source(args.input, "input"), args.text_key)
     out = out_path(args.out)
     done: dict[str, str] = {}
