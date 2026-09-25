@@ -23,7 +23,40 @@ def now_iso() -> str:
 
 
 def agent_tag() -> str:
-    return os.environ.get("JEV_AGENT") or os.environ.get("AGENT_ID") or ""
+    """Who made the call: an explicit JEV_AGENT, else the Claude Code session (JEV_SESSION is written
+    to every Bash command's environment by the plugin's SessionStart hook), else a generic AGENT_ID."""
+    return os.environ.get("JEV_AGENT") or os.environ.get("JEV_SESSION") or os.environ.get("AGENT_ID") or ""
+
+
+def touch_session(session_id: str, cwd: str = "", transcript: str | None = None) -> dict:
+    """Remember when a session was first seen (and where its transcript is). Returns the marker."""
+    now = time.time()
+    if not session_id:
+        return {"first_seen": now}
+    path = settings.SESSIONS_DIR / f"{session_id}.json"
+    try:
+        marker = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError):
+        marker = {}
+    marker.setdefault("first_seen", now)
+    marker["last_seen"] = now
+    if cwd:
+        marker["cwd"] = cwd
+    if transcript:
+        marker["transcript"] = transcript
+    try:
+        settings.SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(marker))
+    except OSError:
+        pass
+    return marker
+
+
+def session_marker(session_id: str) -> dict | None:
+    try:
+        return json.loads((settings.SESSIONS_DIR / f"{session_id}.json").read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def record(row: dict) -> None:
