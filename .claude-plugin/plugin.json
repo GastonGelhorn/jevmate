@@ -1,0 +1,37 @@
+{
+  "name": "jev",
+  "displayName": "jev",
+  "version": "1.1.0",
+  "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on WebFetch, and a per-session view of what it kept out of the context.",
+  "author": { "name": "Gaston Gelhorn" },
+  "homepage": "https://github.com/OWNER/jev-cli",
+  "repository": "https://github.com/OWNER/jev-cli",
+  "license": "MIT",
+  "keywords": ["decisions", "calibration", "triage", "classification", "ranking", "tests", "code-review", "hooks", "mcp", "typesafe", "openrouter"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "A TypeSafe key (console.typesafe.ai) or an OpenRouter key (sk-or-…). Stored with mode 0600 on the next session start; leave empty if you use `jev auth set` or TYPESAFE_API_KEY.",
+      "sensitive": true
+    },
+    "backend": {
+      "type": "string",
+      "title": "Backend",
+      "description": "typesafe or openrouter. Empty: detected from the key (sk-or- means OpenRouter), else TypeSafe.",
+      "default": ""
+    },
+    "guard_mode": {
+      "type": "string",
+      "title": "Bash guard",
+      "description": "ask: prompt before a command that looks destructive (p >= 0.60). deny: also deny at p >= 0.90 where no prompt can appear. off: no guard.",
+      "default": "ask"
+    },
+    "screen_mode": {
+      "type": "string",
+      "title": "WebFetch screen",
+      "description": "on: add a line of context when fetched text reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
+      "default": "on"
+    }
+  }
+}
