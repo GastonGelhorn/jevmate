@@ -46,11 +46,31 @@ class Decision:
         return f"Decision({self.answer}, p={self.p:.3f}, t={self.threshold}{band})"
 
 
-def decide(state, question: str, *, threshold: float = 0.5, band=None, true=None, false=None, client=None, label: str = "decide") -> Decision:
-    """One yes/no about one state; `question` names the state's fields in backticks."""
+def _spec(question, threshold, band, true=None, false=None, model=None):
+    """`question` may be a saved question (a dict from jev.library, or "lib:NAME"); its threshold, band,
+    criteria and pinned model fill in whatever the caller left at the default."""
+    if isinstance(question, str) and question.startswith("lib:"):
+        from .library import load
+        question = load(question[4:])
+    if isinstance(question, dict):
+        spec = question
+        question = spec["question"]
+        if threshold == 0.5 and spec.get("threshold") is not None:
+            threshold = float(spec["threshold"])
+        if band is None and spec.get("band"):
+            band = tuple(spec["band"])
+        true = true if true is not None else spec.get("true")
+        false = false if false is not None else spec.get("false")
+        model = model or spec.get("model")
+    return question, threshold, band, true, false, model
+
+
+def decide(state, question, *, threshold: float = 0.5, band=None, true=None, false=None, client=None, label: str = "decide") -> Decision:
+    """One yes/no about one state; `question` names the state's fields in backticks (or is a saved question)."""
+    question, threshold, band, true, false, model = _spec(question, threshold, band, true, false)
     if client is None:
         from .client import Client
-        client = Client(label=label)
+        client = Client(model=model, label=label)
     r = client.ask(state, {"q": noul(question, true, false)})
     return Decision(r["answers"]["q"]["noul"], threshold, band, state)
 
@@ -62,9 +82,10 @@ def decide_many(items, question: str, *, threshold: float = 0.5, band=None, quer
     items = list(items)
     if not items:
         return []
+    question, threshold, band, _, _, model = _spec(question, threshold, band)
     if client is None:
         from .client import Client
-        client = Client(label=label)
+        client = Client(model=model, label=label)
     from .grading import grade
     g = grade(client, items, question, query if query is not None else "the item under judgment",
               context=context, chunk_size=chunk_size, concurrency=concurrency)
