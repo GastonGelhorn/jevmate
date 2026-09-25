@@ -53,8 +53,15 @@ def _texts(o, out: list) -> None:
             _texts(v, out)
 
 
+def _opt(key: str, env: str, default: str) -> str:
+    v = os.environ.get(env)
+    if v in (None, ""):
+        v = os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key}")  # the plugin's user configuration
+    return v if v not in (None, "") else default
+
+
 def guard() -> int:
-    mode = os.environ.get("JEV_GUARD_MODE", "ask")
+    mode = _opt("GUARD_MODE", "JEV_GUARD_MODE", "ask")
     if mode == "off":
         return 0
     p = _payload()
@@ -64,8 +71,8 @@ def guard() -> int:
     if not cmd or (SAFE.match(cmd) and not RISKY.search(cmd)):
         return 0
     from . import ledger  # only now: the skip above must stay cheap
-    ask_at = float(os.environ.get("JEV_GUARD_ASK", "0.60"))
-    deny_at = float(os.environ.get("JEV_GUARD_DENY", "0.90"))
+    ask_at = float(_opt("GUARD_ASK", "JEV_GUARD_ASK", "0.60"))
+    deny_at = float(_opt("GUARD_DENY", "JEV_GUARD_DENY", "0.90"))
     perm = p.get("permission_mode") or ""
     try:
         from .client import Client
@@ -92,7 +99,7 @@ def guard() -> int:
 
 
 def screen() -> int:
-    if os.environ.get("JEV_SCREEN_MODE", "on") == "off":
+    if _opt("SCREEN_MODE", "JEV_SCREEN_MODE", "on") == "off":
         return 0
     p = _payload()
     if not p or p.get("tool_name") not in ("WebFetch", "WebSearch"):
@@ -105,7 +112,7 @@ def screen() -> int:
     from . import ledger
     ti = p.get("tool_input") or {}
     src = ti.get("url") or ti.get("query") or ""
-    warn_at = float(os.environ.get("JEV_SCREEN_WARN", "0.55"))
+    warn_at = float(_opt("SCREEN_WARN", "JEV_SCREEN_WARN", "0.55"))
     try:
         from .client import Client
         from .questions import noul
@@ -123,8 +130,65 @@ def screen() -> int:
     return 0
 
 
+def session_start() -> int:
+    """Runs when a Claude Code session starts, resumes or compacts. Three small jobs:
+    - put the session id in every Bash command's environment (CLAUDE_ENV_FILE is sourced before each
+      one), so the agent's own `jev` calls are attributed to the session in the ledger;
+    - turn the plugin's user configuration (key, backend) into the key file and config, once;
+    - remember where this session's transcript is, so `jev session` finds it without guessing."""
+    p = _payload() or {}
+    sid = str(p.get("session_id") or "")
+    from . import ledger, settings
+    env_file = os.environ.get("CLAUDE_ENV_FILE")
+    if env_file and sid:
+        line = f'export JEV_SESSION="session:{sid[:8]}"\n'
+        try:
+            current = open(env_file).read() if os.path.exists(env_file) else ""
+            if line not in current:
+                with open(env_file, "a") as f:
+                    f.write(line)
+        except OSError:
+            pass
+    key = os.environ.get("CLAUDE_PLUGIN_OPTION_API_KEY", "").strip()
+    if key:
+        try:
+            have = settings.KEY_FILE.read_text().strip() if settings.KEY_FILE.exists() else ""
+        except OSError:
+            have = ""
+        if have != key:
+            try:
+                settings.HOME.mkdir(parents=True, exist_ok=True)
+                fd = os.open(settings.KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(key + "\n")
+            except OSError:
+                pass
+    backend = (os.environ.get("CLAUDE_PLUGIN_OPTION_BACKEND") or "").strip().lower()
+    if not backend and key.startswith("sk-or-"):
+        backend = "openrouter"
+    if backend in settings.BACKENDS and not settings.config().get("base_url"):
+        url, model = settings.BACKENDS[backend]
+        cfg = dict(settings.config())
+        cfg.update(base_url=url, model=model)
+        settings.save_config(cfg)
+    if sid:
+        ledger.touch_session(sid, p.get("cwd") or "", p.get("transcript_path"))
+    if p.get("source", "startup") == "startup":
+        from ._version import VERSION
+        note = (f"jev {VERSION} is on PATH: calibrated yes/no, ranking and triage from the shell for anything repetitive "
+                "(`jev guide`); `jev session` shows what it decided this session and what that would have cost to read.")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": note}}))
+    return 0
+
+
 def run(which: str) -> int:
     try:
-        return guard() if which == "guard" else screen() if which == "screen" else 2
+        if which == "guard":
+            return guard()
+        if which == "screen":
+            return screen()
+        if which == "session-start":
+            return session_start()
+        return 2
     except Exception:  # noqa: BLE001  a hook must never break the tool call
         return 0
