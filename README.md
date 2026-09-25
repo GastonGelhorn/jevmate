@@ -34,9 +34,18 @@ on rows you labelled, and `--abstain` hands the band it cannot decide to a reade
 
 ## Install
 
+As a Claude Code plugin (the repository is its own marketplace):
+
+```bash
+claude plugin marketplace add OWNER/jev-cli
+claude plugin install jev@jev-cli          # asks for the key and the backend; hooks, skills, MCP tools and `jev` on PATH
+```
+
+Or as a plain CLI, for Codex, OpenCode, scripts and cron:
+
 ```bash
 git clone <this repo> && cd jev-cli && ./install.sh     # verifies SHA256SUMS; ~/.local/bin/jev, ~/.local/share/jev, the skill symlinks
-jev auth set <key>                                     # stored with mode 0600
+jev auth set <key>                                     # stored with mode 0600; an sk-or- key configures OpenRouter
 jev doctor                                             # key, backend, one round trip
 ```
 
@@ -71,16 +80,23 @@ Everything in the defaults was measured; `docs/MEASUREMENTS.md` has the numbers 
   cent; a hook decision costs 300 ms. Where it does not: a long session's spend is dominated by
   the conversation re-sent every turn, which no filter touches. `jev watch` shows both numbers.
 
-## Claude Code
+## In Claude Code
 
-```bash
-jev hooks install        # guard on Bash (asks at p >= 0.60, never allows), injection screen on WebFetch
-jev statusline install   # session cost next to what jev decided, under the prompt (terminal CLI)
-jev watch                # the same, live, in the desktop app's Terminal panel
-```
+The plugin brings, besides the skill Claude reaches for on its own:
 
-The hooks are advisory by construction: `ask`, never `allow`; `deny` only at p >= 0.90 and only
-where no prompt can appear. Both fail open and log every decision.
+| piece | what it does |
+|---|---|
+| `/jev:sift`, `/jev:tests`, `/jev:review`, `/jev:triage` | the four workflows as slash skills, for the person |
+| `/jev:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
+| `/jev:setup` | key, backend, health check, without the key ever entering the chat |
+| `jev:band-reader` | a Haiku agent that labels the uncertain band in its own context, so the main context never pays for it |
+| hooks | a guard on Bash that asks and never allows; an injection screen on WebFetch; a SessionStart hook that tags every `jev` call with the session |
+| MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session` as typed tool calls, one long-lived process |
+| saved questions | `jev tune … --save refund`, then `jev rank --q refund`: the measured threshold and band travel with the question |
+
+The desktop app does not render status lines, so there the numbers live in `/jev:stats` and in
+`jev watch` (Terminal panel); the terminal CLI also gets `jev statusline install`. `docs/PLUGIN.md`
+has every detail, `SECURITY.md` what leaves the machine (the state and the questions, nothing else).
 
 ## From Python
 
@@ -96,13 +112,17 @@ r = Client(label="triage").ask({"email": body}, {"receipt": noul("Is `email` a p
 ## Layout
 
 ```
-jev/            the package: settings, questions, transport (keep-alive), cache, ledger, client, grading, decide, textio
+jev/            the package: settings, questions, transport (keep-alive), cache, ledger, client, grading, decide, textio,
+                analysis (sift, tests, diff, failures, cluster), metrics (the session view), library (saved questions), mcp, hooks
 jev/cli/        one module per command family, imported only when its command runs
 jev/guide/      the playbook (`jev guide`) and recipes (`jev examples`), as Markdown
-bin/jev         the launcher
-SKILL.md        the agent skill, linked into ~/.claude/skills/jev by install.sh
+bin/jev         the launcher (on PATH while the plugin is enabled)
+skills/         the skill Claude invokes, and the /jev:… ones the person invokes
+agents/         jev:band-reader
+hooks/ .mcp.json .claude-plugin/   the plugin wiring; the repo is its own marketplace
+evals/          six cases for `claude plugin eval`
 tests/          python3 -m unittest discover -s tests
-docs/           MEASUREMENTS.md
+docs/           MEASUREMENTS.md, PLUGIN.md
 ```
 
 Everything the API sees is the state and the questions you pass; the ledger stores metadata
