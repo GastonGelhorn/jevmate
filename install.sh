@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Installs jev from this checkout: the package to ~/.local/share/jev, the launcher to ~/.local/bin/jev,
-# the skill into every agent skills directory that exists. Verifies SHA256SUMS first, so what you
+# Installs jev from this checkout WITHOUT the plugin system: the package to ~/.local/share/jev, the launcher
+# to ~/.local/bin/jev, the skill into every agent skills directory that exists. Claude Code users can instead
+# `claude plugin marketplace add OWNER/jev-cli && claude plugin install jev@jev-cli`, which also wires the hooks. Verifies SHA256SUMS first, so what you
 # audited is what runs (tools/checksums.sh regenerates the file after a change).
 set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,10 +25,10 @@ echo "installed  $BIN/jev  ($("$BIN/jev" --version))"
 echo "package    $LIB/jev  (import jev; jev scaffold --libpath)"
 
 SKILL="${HOME}/.local/share/jev-skill"; mkdir -p "$SKILL"
-cp SKILL.md "$SKILL/SKILL.md"
+cp skills/jev/SKILL.md "$SKILL/SKILL.md"
 for d in "$HOME/.claude/skills" "$HOME/.agents/skills" "$HOME/.codex/skills" "$HOME/.config/opencode/skills"; do
   if [ -d "$d" ]; then ln -sfn "$SKILL" "$d/jev" && echo "skill      $d/jev"; fi
 done
 
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "add $BIN to your PATH";; esac
-echo "next       jev auth set <key> · jev doctor · jev hooks install · jev statusline install"
+echo "next       jev auth set <key> · jev doctor · jev hooks install · jev statusline install   (skip hooks/statusline if the plugin is installed)"

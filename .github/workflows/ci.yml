@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: unit tests
+        run: python -m unittest discover -s tests -v
+      - name: byte-compile everything
+        run: python -m compileall -q jev bin/jev
+      - name: checksums are current
+        if: runner.os != 'Windows'
+        run: |
+          bash tools/checksums.sh >/dev/null
+          git diff --exit-code SHA256SUMS
+
+  plugin:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: validate the plugin and the marketplace
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate --strict .
