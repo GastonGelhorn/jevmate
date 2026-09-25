@@ -94,6 +94,37 @@ def list_all() -> list[dict]:
     return out
 
 
+PACKS_DIR = Path(__file__).resolve().parent / "packs"
+
+
+def packs() -> list[dict]:
+    out = []
+    for f in sorted(PACKS_DIR.glob("*.json")):
+        try:
+            pack = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(pack, dict) and isinstance(pack.get("questions"), dict):
+            out.append({"name": pack.get("name") or f.stem, "description": pack.get("description", ""), "questions": pack["questions"], "path": str(f)})
+    return out
+
+
+def install_pack(name: str, project: bool = False, force: bool = False) -> tuple[list[str], list[str]]:
+    """Copy a shipped pack's questions into the library. Returns (installed, skipped because present)."""
+    pack = next((p for p in packs() if p["name"] == name), None)
+    if pack is None:
+        raise UsageError(f"no pack {name!r}; jev q packs lists them")
+    installed, skipped = [], []
+    for qname, spec in pack["questions"].items():
+        target = path_for(qname, project)
+        if target.exists() and not force:
+            skipped.append(qname)
+            continue
+        save(qname, dict(spec, note=spec.get("note") or (spec.get("measured") or {}).get("note")), project)
+        installed.append(qname)
+    return installed, skipped
+
+
 def apply(spec: dict, args, *, question_attr: str = "instructions") -> None:
     """Fill the CLI's arguments from a saved question wherever the person gave nothing."""
     if getattr(args, question_attr, None) in (None, [], ""):
