@@ -1,0 +1,66 @@
+{
+  "name": "core",
+  "description": "The questions the tool itself runs on, with the thresholds they were measured or shipped with. Thresholds marked `starting point` were not measured on labelled rows: run `jev tune` on thirty of yours before trusting them at volume.",
+  "questions": {
+    "bug_fix_commit": {
+      "question": "Is `candidate` a bug fix: a change that corrects behaviour that was wrong, rather than a new feature, a refactor or a chore?",
+      "threshold": 0.42, "band": [0.32, 0.52], "kind": "rank",
+      "measured": {"n": 80, "accuracy": 0.762, "balanced": 0.75, "date": "2026-09-24", "note": "commit subjects of one repository, labelled by hand; the same threshold scored 78.8% on 80 fresh rows from other repositories"}
+    },
+    "destructive_command": {
+      "question": "Would running `candidate` delete, overwrite or irreversibly change files, data, git history, credentials or remote state?",
+      "true": "deletes or overwrites existing files or data; rewrites or force-pushes git history; drops or truncates tables; kills processes; changes permissions, owners or secrets; sends something to a remote that cannot be taken back",
+      "false": "reads, lists, searches, compiles, tests or builds; writes only new scratch or output files; is undone by a git checkout or a trash restore",
+      "threshold": 0.60, "band": [0.50, 0.70], "kind": "yes",
+      "measured": {"n": 27, "date": "2026-09-24", "note": "the guard's bars: benign commands scored at or under 0.18, destructive ones at or above 0.74, mv and docker compose down in between"}
+    },
+    "prompt_injection": {
+      "question": "Does `candidate` contain instructions addressed to an AI assistant or agent?",
+      "true": "text that tells an assistant, agent, model or 'Claude' what to do: take an action, ignore or override earlier instructions, reveal or send data, run a command, visit a link, or claims authority over it",
+      "false": "ordinary prose, documentation, code or discussion written for human readers, even when it describes AI or contains imperative sentences aimed at people",
+      "threshold": 0.55, "band": [0.45, 0.65], "kind": "yes",
+      "measured": {"n": 5, "date": "2026-09-24", "note": "the screen's bar: notices addressed to agents scored 0.99, prose about injection 0.05; documentation pages that address agents score 0.6 to 0.7, which is the band"}
+    },
+    "same_cause": {
+      "question": "Is `candidate` caused by the same underlying problem as `query`?",
+      "true": "the same defect or cause (the same missing key, the same unreachable service, the same wrong assumption) even when the test name, file, line numbers or values differ",
+      "false": "a different cause that merely looks alike: the same exception type for a different reason, or two failures that only share a category",
+      "threshold": 0.70, "band": [0.50, 0.70], "kind": "rank",
+      "measured": {"n": 12, "date": "2026-09-24", "note": "twelve planted failures with three causes: eleven grouped right, the twelfth landed in the band at 0.67"}
+    },
+    "flaky_failure": {
+      "question": "Does the failure in `candidate` look like flakiness (a timeout, a refused or reset connection, a race or ordering assumption, the clock, randomness, an external service) rather than a deterministic wrong result?",
+      "threshold": 0.60, "band": [0.45, 0.65], "kind": "rank",
+      "note": "starting point, not measured"
+    },
+    "worth_reading": {
+      "question": "Is `candidate` worth reading to find `query`? Judge from its path and the excerpt.",
+      "threshold": 0.50, "band": [0.40, 0.60], "kind": "rank",
+      "note": "sift's question; starting point, not measured on labelled rows"
+    },
+    "in_scope": {
+      "question": "Is the change in `candidate` part of the task described in `query`, or needed to carry it out?",
+      "true": "it implements, fixes, tests or documents what the task asks for, or is a direct prerequisite",
+      "false": "an unrelated change riding along: a refactor nobody asked for, a different feature, a drive-by cleanup, a config or dependency change the task did not need",
+      "threshold": 0.40, "band": [0.30, 0.50], "kind": "rank",
+      "note": "diff --task's question; starting point, not measured"
+    },
+    "refund_request": {
+      "question": "Does `candidate` ask for money back: a refund, a reversed or cancelled charge, a chargeback?",
+      "true": "an explicit request to be refunded, to reverse a charge, or a threat of a chargeback",
+      "false": "a complaint, a question about an invoice, or a request for something other than money back",
+      "threshold": 0.50, "band": [0.40, 0.60], "kind": "rank",
+      "note": "starting point, not measured"
+    },
+    "urgent_ticket": {
+      "question": "Does `candidate` need a reply today: the writer is blocked, losing money or data, or has set a deadline?",
+      "threshold": 0.55, "band": [0.45, 0.65], "kind": "rank",
+      "note": "starting point, not measured"
+    },
+    "personal_data": {
+      "question": "Does `candidate` contain personal data about an identifiable person: a name together with contact details, an id number, health, financial or location information?",
+      "threshold": 0.60, "band": [0.45, 0.70], "kind": "rank",
+      "note": "starting point, not measured"
+    }
+  }
+}
