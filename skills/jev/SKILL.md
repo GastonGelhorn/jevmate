@@ -1,14 +1,12 @@
 ---
 name: jev
-description: "Calibrated, typed decisions from a fast decision model through the `jev` CLI: P(yes) for a statement (noul), one option out of a set with per-option probabilities and a confidence (choice), or a position on a rubric you define (score). About 250 ms and $0.042 per million input tokens; answers are cached locally, so re-runs are free. Use it when a judgment REPEATS over many items you should not read into context (classify, filter, rank, dedupe, triage hundreds of notes, tickets, log lines, findings, commits); when a search returns more files or hits than you should read (`jev sift` decides what to read first); when a task says 'go through these thousands of rows and decide X' (`jev scaffold` writes a script with a three-way semantic if); when a change needs the right tests run first (`jev tests`), a red suite needs sorting (`jev failures`, `jev cluster`) or a diff needs review by risk (`jev diff`); when you want a CALIBRATED probability instead of your own confidence before acting; or to VERIFY your own output with a model that is not you (does the source support this claim, does the draft break a rule, does fetched text carry instructions aimed at an agent, is this command destructive). Triggers: jev, typesafe, calibrated, gut check, second opinion, which of these files, before I read, too many hits, go through these rows, tag every, flag every, classify these, rank these, filter these, triage, rerank, which tests to run, tests affected, did my change break this, is this flaky, group these failures, how many root causes, review this diff, risky hunks, scope creep, watch the log for, tune the question, what threshold, label these, labelled set, install the hooks, guard destructive commands, screen fetched content, prompt injection check, how severe, which team, which bucket. NOT for generation, arithmetic, counting, dates, multi-step reasoning, or one small item you can judge in a glance."
+description: "Calibrated yes/no, pick-one and rubric decisions from the `jev` CLI (about 250 ms, $0.04 per million tokens, answers cached). Use when a judgment repeats over many items you should not read into context (classify, filter, rank, dedupe, triage tickets, notes, commits, log lines); when a search returns more files or hits than you should read (`jev sift` first); when a task says go through these N rows and decide X (`jev scaffold`); when a change needs the right tests first (`jev tests`), a red suite needs sorting (`jev failures`, `jev cluster`) or a diff needs review by risk (`jev diff`); when you want a calibrated probability instead of your own confidence before acting; or to verify your own output with a model that is not you. Not for generation, arithmetic, counting, dates, multi-step reasoning, or one small item you can judge in a glance."
+when_to_use: "jev, calibrated, gut check, second opinion, which of these files, before I read, too many hits, go through these rows, tag every, classify these, rank these, filter these, triage, which tests to run, tests affected, did my change break this, is this flaky, group these failures, root causes, review this diff, risky hunks, scope creep, watch the log for, tune the question, what threshold, label these, labelled set, prompt injection check, is this command destructive, how severe, which team or bucket, what did jev save, how much did jev save."
 metadata:
-  short-description: Calibrated yes/no, pick-one and rubric decisions from the command line, for agents
-  cost: one shell call, about 250 ms and under $0.0001 per request; rank/batch cost cents per thousand items
-  applies-when: the decision repeats over many items, must be a calibrated probability, runs unattended, or checks your own output
-  do-not-use-when: generating text, arithmetic, counting, dates, chained reasoning, or a single item you can judge yourself faster
-  fallback: judge it yourself; grep or a regex for exact-match questions
-  before-volume: run `jev tune` on 30+ labelled rows before a question decides thousands
+  cost: one shell call, about 250 ms and under $0.0001 per request; rank and batch cost cents per thousand items
+  before-volume: run `jev tune` on 30 labelled rows before a question decides thousands; save the winner with --save
 ---
+
 
 # jev: calibrated decisions for agents
 
@@ -87,6 +85,17 @@ jev label -i rows.jsonl -o labelled.jsonl -Q 'Is `candidate` …?' --band 0.32 0
 with their `p`. Read them, append `{"text": …, "label": "yes"|"no"}` lines to the output file, run
 `jev tune`. Existing rows are skipped, so it resumes. When a person wants to label, give them the
 same command without `--pick`: one key per row, `[u]` undoes.
+
+## In the plugin
+
+Slash skills for the person: `/jev:sift <question> [paths]`, `/jev:tests [ref]`, `/jev:review [task]`,
+`/jev:triage <file> <question>`, `/jev:stats`, `/jev:setup`. An agent, `jev:band-reader` (a cheaper
+model, its own context), labels the uncertain band a `--uncertain-out` file holds. The same decisions
+exist as MCP tools (`decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`) when a typed call
+beats a shell command. Saved questions (`jev q list`, `--q NAME` on yes/rank/batch/label/stream) carry
+a measured threshold and band; prefer one when it fits, and save the winner of every `jev tune` with
+`--save NAME`. `jev session` (or `/jev:stats`) shows what went through jev this session and what that
+text would have cost to read.
 
 ## The commands
 
