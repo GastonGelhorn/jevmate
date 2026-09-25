@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0
+
+Hooks that work without being asked: `after-bash` (PostToolUse and PostToolUseFailure on Bash)
+groups a failed test run by cause and says which failures the current diff caused, in one line,
+screens content fetched with curl, wget or gh, and records what ran so the guard never asks twice
+about a command you already let through; `route` (UserPromptSubmit) rates each prompt and hints
+when a cheaper subagent or lower effort is enough; `stop` (opt-in) holds a reply that claims tests
+passed when no test command ran. The guard takes project rules from `.jev/guard.json`, and
+`jev hooks tune` proposes this machine's ask bar from what you allowed and declined.
+
+Also: `/jev:pr` with the `jev:reviewer` agent (Sonnet), a shipped question pack (`jev q packs`,
+`jev q install core`), `jev batch --resume`, and Windows fallbacks (`py -3` in the hook commands,
+no `/dev/tty` or `select()` on the way).
+
 ## 1.1.0
 
 A Claude Code plugin, and the repo is its own marketplace (`claude plugin marketplace add
