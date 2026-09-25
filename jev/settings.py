@@ -30,6 +30,11 @@ CACHE_TTL_DAYS = 30.0
 
 LIB_DIR = Path.home() / ".local" / "share" / "jev"   # where install.sh puts the package; `import jev` works from here
 
+BACKENDS = {  # name -> (base url, default model)
+    "typesafe": (VENDOR_URL, "jev-latest"),
+    "openrouter": ("https://openrouter.ai/api", "~typesafe/jev-latest"),
+}
+
 # --dry-run and --no-cache are per process; the CLI flips them before dispatching.
 RUNTIME = SimpleNamespace(dry_run=False, cache=True)
 
@@ -119,6 +124,28 @@ def cost_usd(input_tokens: int) -> float:
 def rpm_limit() -> int:
     v = config().get("rpm")
     return int(v) if v else RPM_LIMIT
+
+
+def backend_name() -> str:
+    url = base_url()
+    return next((k for k, (u, _) in BACKENDS.items() if u == url), "custom")
+
+
+def option(key: str, env: str | None = None, default=None):
+    """A setting that may come from the environment (`env`), from the plugin's user configuration
+    (Claude Code exports each `userConfig` value as CLAUDE_PLUGIN_OPTION_<KEY> to hooks and MCP
+    servers), or a default; in that order."""
+    if env:
+        v = os.environ.get(env)
+        if v not in (None, ""):
+            return v
+    v = os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}")
+    return v if v not in (None, "") else default
+
+
+def questions_dirs() -> list[Path]:
+    """Where saved questions live: the project's `.jev/questions/` first, then the home one."""
+    return [Path(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()) / ".jev" / "questions", HOME / "questions"]
 
 
 def resolve_key(explicit: str | None = None) -> tuple[str, str]:
