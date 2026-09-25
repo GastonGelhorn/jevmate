@@ -29,7 +29,12 @@ def p_for(question: dict, state) -> float:
     """Deterministic: the judged text (the embedded candidate, else the state) scores high when it
     contains 'yes', lands in the middle on 'maybe', low otherwise."""
     instr = question.get("instructions")
-    src = instr["candidate"] if isinstance(instr, dict) and "candidate" in instr else state
+    if isinstance(instr, dict) and "candidate" in instr:
+        src = instr["candidate"]
+    elif isinstance(state, dict) and "`commands`" in str(instr) and "commands" in state:
+        src = state["commands"]  # the honesty hook's second question judges the commands, not the reply
+    else:
+        src = state
     text = json.dumps(src, ensure_ascii=False).lower()
     if "maybe" in text:
         return 0.5
