@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: cluster-red-suite
+tags: [core]
+context:
+  add_dirs: [resources]

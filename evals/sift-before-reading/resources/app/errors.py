@@ -1,0 +1,29 @@
+# errors module
+
+class Errors:
+    def run(self):
+        return 'errors'
+
+def errors_helper_0(x):
+    return x + 0
+
+def errors_helper_1(x):
+    return x + 1
+
+def errors_helper_2(x):
+    return x + 2
+
+def errors_helper_3(x):
+    return x + 3
+
+def errors_helper_4(x):
+    return x + 4
+
+def errors_helper_5(x):
+    return x + 5
+
+def errors_helper_6(x):
+    return x + 6
+
+def errors_helper_7(x):
+    return x + 7

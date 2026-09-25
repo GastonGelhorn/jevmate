@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: which-tests-first
+tags: [core]
+context:
+  add_dirs: [resources]

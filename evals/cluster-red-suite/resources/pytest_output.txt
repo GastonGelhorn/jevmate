@@ -1,0 +1,61 @@
+________________ tests/test_money.py::test_10 ________________
+
+    assert total == Decimal('10.10')
+E   AssertionError: assert Decimal('10.1000000001') == Decimal('10.10')
+
+________________ tests/test_profile.py::test_2 ________________
+
+    row = payload['user_id']
+E   KeyError: 'user_id'
+
+________________ tests/test_cache.py::test_7 ________________
+
+    sock.connect(('127.0.0.1', 6380))
+E   ConnectionRefusedError: [Errno 61] Connection refused
+
+________________ tests/test_cache.py::test_9 ________________
+
+    sock.connect(('127.0.0.1', 6382))
+E   ConnectionRefusedError: [Errno 61] Connection refused
+
+________________ tests/test_profile.py::test_4 ________________
+
+    row = payload['user_id']
+E   KeyError: 'user_id'
+
+________________ tests/test_money.py::test_13 ________________
+
+    assert total == Decimal('10.10')
+E   AssertionError: assert Decimal('10.1000000001') == Decimal('10.10')
+
+________________ tests/test_profile.py::test_5 ________________
+
+    row = payload['user_id']
+E   KeyError: 'user_id'
+
+________________ tests/test_profile.py::test_3 ________________
+
+    row = payload['user_id']
+E   KeyError: 'user_id'
+
+________________ tests/test_money.py::test_12 ________________
+
+    assert total == Decimal('10.10')
+E   AssertionError: assert Decimal('10.1000000001') == Decimal('10.10')
+
+________________ tests/test_cache.py::test_8 ________________
+
+    sock.connect(('127.0.0.1', 6381))
+E   ConnectionRefusedError: [Errno 61] Connection refused
+
+________________ tests/test_profile.py::test_1 ________________
+
+    row = payload['user_id']
+E   KeyError: 'user_id'
+
+________________ tests/test_cache.py::test_6 ________________
+
+    sock.connect(('127.0.0.1', 6379))
+E   ConnectionRefusedError: [Errno 61] Connection refused
+
+=========== 12 failed in 3.21s ===========

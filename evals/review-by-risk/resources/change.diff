@@ -1,0 +1,46 @@
+diff --git a/src/http.py b/src/http.py
+--- a/src/http.py
++++ b/src/http.py
+@@ -6,6 +6,8 @@ class Backoff:
+ 
+ def retry_after(headers, attempt):
+     ra = headers.get('retry-after')
+-    if ra and ra.isdigit():
+-        return float(ra)
++    if ra and ra.replace('.', '', 1).isdigit():
++        return min(float(ra), 30.0)
+     return Backoff().delay(attempt)
+diff --git a/src/cache.py b/src/cache.py
+--- a/src/cache.py
++++ b/src/cache.py
+@@ -1,9 +1,9 @@
+ import json, os
+ 
+ def get(path):
+     try:
+         return json.load(open(path))
+     except OSError:
+         return None
+ 
+-def put(path, obj):
+-    json.dump(obj, open(path, 'w'))
++def put(path, obj):
++    os.remove(path) if os.path.exists(path) else None
++    json.dump(obj, open(path, 'w'))
+diff --git a/src/render.py b/src/render.py
+--- a/src/render.py
++++ b/src/render.py
+@@ -1,2 +1,2 @@
+-def table(rows):
++def table(rows):  # renders a table
+     return '\n'.join(' | '.join(map(str, r)) for r in rows)
+diff --git a/src/ledger.py b/src/ledger.py
+--- a/src/ledger.py
++++ b/src/ledger.py
+@@ -1,5 +1,6 @@
+ import json
+ 
+ def record(path, row):
+-    with open(path, 'a') as f:
++    with open(path, 'w') as f:
+         f.write(json.dumps(row) + '\n')
