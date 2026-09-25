@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jev-cli"
+version = "1.0.0"
+description = "Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line and Python"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Gaston Gelhorn" }]
+keywords = ["agents", "claude-code", "classification", "calibration", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.scripts]
+jev = "jev.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jev", "jev.*"]
+
+[tool.setuptools.package-data]
+jev = ["guide/*.md"]
