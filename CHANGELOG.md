@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+The triage line names the error, not the test.
+
 ## 1.2.0
 
 Hooks that work without being asked: `after-bash` (PostToolUse and PostToolUseFailure on Bash)
