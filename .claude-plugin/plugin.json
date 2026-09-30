@@ -1,7 +1,7 @@
 {
   "name": "jev",
   "displayName": "jev",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on fetched content, a red-suite triage the moment a test command fails, a routing hint per prompt, and a per-session view of what it kept out of the context.",
   "author": {
     "name": "Gaston Gelhorn"
@@ -55,9 +55,9 @@
     },
     "route_mode": {
       "type": "string",
-      "title": "Routing hint",
-      "description": "on: rate each prompt (lookup / routine / judgment / hard) and, for routine ones, hint that a cheaper subagent or lower effort is enough. off: nothing.",
-      "default": "on"
+      "title": "Routing hint (opt-in)",
+      "description": "on: rate each prompt (lookup / routine / judgment / hard) and, for a routine one at confidence >= 0.80 (JEV_ROUTE_CONF), hint that a cheaper subagent or lower effort is enough. off (default): nothing. Measured on 101 Spanish prompts: at 0.55 half got a hint and several were design decisions, so it ships off.",
+      "default": "off"
     },
     "honesty_mode": {
       "type": "string",
