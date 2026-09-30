@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2
+
+`jev hooks tune` pairs only the asks the after-bash hook could witness: before its first `ran`
+row, an ask that nothing followed read as declined when nothing was recording what ran. The
+routing hint is opt-in and stricter (confidence 0.80, `JEV_ROUTE_CONF`), and skips attachments:
+on 101 real prompts the old bar hinted on half of them.
+
 ## 1.2.1
 
 The triage line names the error, not the test.
