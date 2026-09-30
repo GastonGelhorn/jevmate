@@ -168,8 +168,11 @@ def hooks_tune(args) -> int:
     from datetime import datetime, timedelta
     from .tune import metrics, sweep
     rows = ledger.hook_rows(None)
-    guards = [r for r in rows if r.get("hook") == "guard" and isinstance(r.get("p"), (int, float))]
     ran = [r for r in rows if r.get("hook") == "ran"]
+    # Only asks the after-bash hook could have witnessed count: before its first row, an ask with
+    # nothing following looks declined when in fact nothing was recording what ran.
+    first_ran = ran[0]["ts"] if ran else "9999"
+    guards = [r for r in rows if r.get("hook") == "guard" and isinstance(r.get("p"), (int, float)) and r["ts"] >= first_ran]
     last_ts = rows[-1]["ts"] if rows else ""
     pairs, allowed_after_ask, declined_after_ask, silent_ran = [], [], [], 0
     for g in guards:
@@ -189,7 +192,7 @@ def hooks_tune(args) -> int:
         elif followed:
             silent_ran += 1
             pairs.append((float(g["p"]), False))
-    print(f"guard decisions with a p: {len(guards)} · asked: {len(allowed_after_ask) + len(declined_after_ask)} "
+    print(f"guard decisions with a p since {first_ran[:10] if ran else '-'} (when `ran` rows began): {len(guards)} · asked: {len(allowed_after_ask) + len(declined_after_ask)} "
           f"(allowed after the ask: {len(allowed_after_ask)}, declined: {len(declined_after_ask)}) · silent and ran: {silent_ran}")
     if not ran:
         print("no `ran` rows yet: the after-bash hook (plugin 1.2+) records them; come back after a session or two")
