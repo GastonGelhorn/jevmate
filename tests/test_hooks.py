@@ -87,19 +87,24 @@ class Route(unittest.TestCase):
     def setUp(self):
         fresh_home()
 
-    def test_hints_on_routine_prompts_only(self):
-        # the fake scores 0.9 * top on "yes" -> level 3 (hard): no hint; 0.1 * top -> level 0 (lookup): hint
-        code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "yes " * 20, "session_id": "s"}))
-        self.assertEqual(out, "")
-        code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "rename the helper in utils.py and fix the two call sites", "session_id": "s"}))
-        ctx = json.loads(out)["hookSpecificOutput"]
-        self.assertEqual(ctx["hookEventName"], "UserPromptSubmit")
-        self.assertIn("jev route", ctx["additionalContext"])
-        code, out, _, t = run(["hook", "route"], stdin=json.dumps({"prompt": "/jev:stats", "session_id": "s"}))
-        self.assertEqual((out, t.calls), ("", []))
-        with mock.patch.dict("os.environ", {"JEV_ROUTE_MODE": "off"}):
-            code, out, _, t = run(["hook", "route"], stdin=json.dumps({"prompt": "rename the helper in utils.py and fix the two call sites", "session_id": "s"}))
-        self.assertEqual((out, t.calls), ("", []))
+    def test_off_by_default_and_hints_on_routine_prompts_only(self):
+        routine = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "rename the helper in utils.py and fix the two call sites", "session_id": "s"})
+        code, out, _, t = run(["hook", "route"], stdin=routine)
+        self.assertEqual((out, t.calls), ("", []), "opt-in: nothing without route_mode on")
+        with mock.patch.dict("os.environ", {"JEV_ROUTE_MODE": "on"}):
+            # the fake scores 0.9 * top on "yes" -> level 3 (hard): no hint; 0.1 * top -> level 0 (lookup): hint at confidence 0.8
+            code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "yes " * 20, "session_id": "s"}))
+            self.assertEqual(out, "")
+            code, out, _, _ = run(["hook", "route"], stdin=routine)
+            ctx = json.loads(out)["hookSpecificOutput"]
+            self.assertEqual(ctx["hookEventName"], "UserPromptSubmit")
+            self.assertIn("jev route", ctx["additionalContext"])
+            for skipped in ("/jev:stats", "[Image: source: /tmp/x.png] " + "a" * 40, '@"/Users/x/file.sql" ' + "b" * 40):
+                code, out, _, t = run(["hook", "route"], stdin=json.dumps({"prompt": skipped, "session_id": "s"}))
+                self.assertEqual((out, t.calls), ("", []), skipped[:12])
+            with mock.patch.dict("os.environ", {"JEV_ROUTE_CONF": "0.95"}):
+                code, out, _, _ = run(["hook", "route"], stdin=routine)
+                self.assertEqual(out, "", "below the confidence bar: no hint")
 
 
 class Stop(unittest.TestCase):
@@ -140,7 +145,8 @@ class HooksTune(unittest.TestCase):
         ledger.log_hook("ran", {"cmd": "much later", "ok": True})
         code, out, _, _ = run(["hooks", "tune"])
         self.assertEqual(code, 0)
-        self.assertIn("guard decisions with a p: 25", out)
+        self.assertIn("guard decisions with a p since", out)
+        self.assertIn(": 25 ·", out)
 
 
 class BatchResume(unittest.TestCase):
