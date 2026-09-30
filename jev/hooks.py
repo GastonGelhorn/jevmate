@@ -4,7 +4,7 @@ commands are read-only, so the decision to skip must cost nothing but the interp
     guard          PreToolUse Bash        ask on a destructive-looking command; never allow; deny only where no prompt can appear
     after-bash     PostToolUse(Failure)   note that the command ran; triage a red test run; screen fetched remote content
     screen         PostToolUse WebFetch   one line of context when fetched text reads like instructions aimed at an agent
-    route          UserPromptSubmit       a calibrated read of how hard the prompt is, as a hint about delegation and effort
+    route          UserPromptSubmit       (opt-in) a calibrated read of how hard the prompt is, as a hint about delegation and effort
     stop           Stop (opt-in)          block a reply that claims checks passed when no such command ran this turn
     session-start  SessionStart           tag the session's Bash commands, apply the plugin's settings, remember the transcript
 
@@ -302,11 +302,12 @@ def screen() -> int:
 def route() -> int:
     """How hard is this prompt? A hint, never a switch: a plugin cannot change the session's model,
     but the agent can delegate a routine task to a cheaper subagent or spend less effort on it."""
-    if _opt("ROUTE_MODE", "JEV_ROUTE_MODE", "on") == "off":
+    if _opt("ROUTE_MODE", "JEV_ROUTE_MODE", "off") == "off":
         return 0
     p = _payload()
-    prompt = (p or {}).get("prompt") or ""
-    if len(prompt) < 40 or prompt.lstrip().startswith("/"):
+    prompt = ((p or {}).get("prompt") or "").strip()
+    # short prompts, slash commands and attachments (an image or file placeholder carries no task) are skipped
+    if len(prompt) < 40 or prompt.startswith(("/", "[Image:", "@\"", "@/")):
         return 0
     from . import ledger
     try:
@@ -320,7 +321,9 @@ def route() -> int:
         ledger.log_hook("route", {"err": type(e).__name__})
         return 0
     ledger.log_hook("route", {"level": level, "score": round(a["score"], 2), "conf": round(conf, 3), "chars": len(prompt), "cached": bool(r.get("cached"))})
-    if level <= 1 and conf >= 0.55:
+    # Measured on 101 prompts (Spanish, 2026-09-25..30): at 0.55 half of them got a hint and several were
+    # design decisions or multi-step tasks; at 0.80 the hint is rare and the samples were routine.
+    if level <= 1 and conf >= float(_opt("ROUTE_CONF", "JEV_ROUTE_CONF", "0.80")):
         _emit("UserPromptSubmit", additionalContext=(f"jev route: this prompt reads as {ROUTE_NAMES[level]} (confidence {conf:.2f}). A cheaper subagent "
                                                      "(Agent tool with model: sonnet or haiku) or lower effort is likely enough; keep the main model for the judgment calls."))
     return 0
