@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jev-cli"
-version = "1.2.1"
+version = "1.2.2"
 description = "Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line and Python"
 readme = "README.md"
 license = { file = "LICENSE" }
