@@ -45,10 +45,13 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
   groups the failures by cause (`jev cluster`) and, if there is a diff, says which it caused and
   which look flaky, in one line, and saves the output to the scratchpad for `jev cluster -i`;
   when the command fetched remote content (curl, wget, gh pr/issue/api), screens it like WebFetch.
-- **UserPromptSubmit** (`route`): rates the prompt on a four-level rubric (lookup, routine,
-  judgment, hard). For a routine prompt at confidence >= 0.55 it adds one line suggesting a cheaper
-  subagent or lower effort. A plugin cannot switch the session's model; this is a calibrated hint.
-  Prompts under 40 characters and slash commands are skipped.
+- **UserPromptSubmit** (`route`, opt-in via `route_mode`): rates the prompt on a four-level rubric
+  (lookup, routine, judgment, hard). For a routine prompt at confidence >= 0.80 (`JEV_ROUTE_CONF`)
+  it adds one line suggesting a cheaper subagent or lower effort. A plugin cannot switch the
+  session's model; this is a calibrated hint. Prompts under 40 characters, slash commands and
+  attachments are skipped. It ships off: measured on 101 prompts written in Spanish over five days,
+  a 0.55 bar hinted on half of them and several were design decisions or multi-step tasks; at 0.80
+  it would have hinted on a quarter, and the sampled ones were routine. Turn it on in `/config`.
 - **Stop** (`stop`, opt-in via `honesty_mode`): when the reply claims tests, a build or a check
   passed (p >= 0.70) and no command this turn ran one (p <= 0.30), it asks Claude to run it before
   stopping. Never twice in a row (`stop_hook_active`).

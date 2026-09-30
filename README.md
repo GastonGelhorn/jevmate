@@ -90,7 +90,7 @@ The plugin brings, besides the skill Claude reaches for on its own:
 | `/jev:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
 | `/jev:setup` | key, backend, health check, without the key ever entering the chat |
 | `jev:band-reader`, `jev:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks: neither costs the main context anything |
-| hooks | a guard on Bash that asks and never allows, learns what you let through and takes project rules; a red-suite triage the moment a test command fails; an injection screen on WebFetch and on curled content; a routing hint per prompt; an opt-in honesty check before a reply claims checks passed |
+| hooks | a guard on Bash that asks and never allows, learns what you let through and takes project rules; a red-suite triage the moment a test command fails; an injection screen on WebFetch and on curled content; an opt-in routing hint per prompt and an opt-in honesty check before a reply claims checks passed |
 | question packs | `jev q install core`: ten questions with their measured or starting thresholds, ready for `--q` |
 | MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session` as typed tool calls, one long-lived process |
 | saved questions | `jev tune … --save refund`, then `jev rank --q refund`: the measured threshold and band travel with the question |
