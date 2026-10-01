@@ -4,14 +4,14 @@
     "name": "Gaston Gelhorn"
   },
   "metadata": {
-    "description": "jevmate: calibrated decisions for coding agents",
-    "version": "1.4.0"
+    "description": "jevmate: Jev for coding agents",
+    "version": "1.4.1"
   },
   "plugins": [
     {
       "name": "jevmate",
       "source": "./",
-      "description": "Calibrated yes/no, pick-one and rubric decisions for coding agents: triage, ranking, test selection, review by risk, a Bash guard and a WebFetch injection screen.",
+      "description": "Jev for coding agents: triage, test selection, review by risk, output trimming, a Bash guard and a fetch screen, with measured thresholds.",
       "category": "productivity",
       "tags": [
         "decisions",

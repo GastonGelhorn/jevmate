@@ -1,8 +1,8 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.4.0",
-  "description": "jevmate: calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on fetched content, a red-suite triage the moment a test command fails, a routing hint per prompt, and a per-session view of what it kept out of the context.",
+  "version": "1.4.1",
+  "description": "Jev for coding agents. Triage, rank and filter hundreds of items without reading them, pick the tests a change can break, review hunks by risk, trim long command output, and see what stayed out of your context. A Bash guard that asks and never allows, a screen for fetched content, an inspection of installed skills. Thresholds measured, not guessed.",
   "author": {
     "name": "Gaston Gelhorn"
   },
