@@ -2,11 +2,11 @@
 
 ```
 .claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, screen)
-.claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jev@jev-cli`
+.claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jevmate@gastongelhorn`
 skills/jev/SKILL.md             the skill Claude invokes on its own
-skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jev:… for the person; never auto-invoked
-agents/band-reader.md           jev:band-reader, a Haiku agent that labels the uncertain band in its own context
-agents/reviewer.md              jev:reviewer, a Sonnet agent that reads the hunks jev diff rated risky
+skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jevmate:… for the person; never auto-invoked
+agents/band-reader.md           jevmate:band-reader, a Haiku agent that labels the uncertain band in its own context
+agents/reviewer.md              jevmate:reviewer, a Sonnet agent that reads the hunks jev diff rated risky
 hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in)
 jev/packs/core.json             ten questions with their thresholds: jev q install core
 .mcp.json                       `jev mcp`: decide, rank, sift, tests, diff, cluster, session as tools
@@ -17,9 +17,9 @@ evals/                          six cases for `claude plugin eval`
 ## Install
 
 ```bash
-claude plugin marketplace add GastonGelhorn/jev-cli      # once
-claude plugin install jev@jev-cli                # prompts for the key and the backend
-claude plugin update jev@jev-cli                 # later
+claude plugin marketplace add GastonGelhorn/jevmate      # once
+claude plugin install jevmate@gastongelhorn                # prompts for the key and the backend
+claude plugin update jevmate@gastongelhorn                 # later
 ```
 
 Or, without the plugin system: `./install.sh` puts the CLI on PATH and links the skill; `jev hooks
@@ -67,13 +67,13 @@ back to `py -3` when `python3` is not on the PATH.
 
 ## MCP tools
 
-Server `plugin:jev:jev`; tool names `mcp__plugin_jev_jev__<tool>`: `decide`, `ask`, `rank`,
+Server `plugin:jevmate:jev`; tool names `mcp__plugin_jevmate_jev__<tool>`: `decide`, `ask`, `rank`,
 `sift`, `tests`, `diff`, `cluster`, `session`. All read-only on the machine. The server process
 lives for the session, so the HTTPS connection is reused and nothing is recompiled per call.
 
 ## The metric
 
-`jev session` (and `/jev:stats`, and `jev watch` for the desktop app's Terminal panel) shows the
+`jev session` (and `/jevmate:stats`, and `jev watch` for the desktop app's Terminal panel) shows the
 session's three measured rows: what went through jev, what that text would have cost the agent to
 read (once as input, plus its re-read on later turns), and the difference, next to the session's
 model spend estimated from the transcript at list price. Attribution is exact for hook calls and,

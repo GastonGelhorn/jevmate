@@ -13,7 +13,7 @@ home with your user's permissions; `jev cache clear` removes them.
 **The key.** `jev auth set` writes it with mode 0600 and never prints it whole. The plugin's
 configuration field is marked sensitive, so Claude Code keeps it in the platform's credential
 store and hands it to the hook process, which copies it to the key file once. The agent never
-needs to see it: `/jev:setup` tells the person to run `jev auth set` in their own terminal.
+needs to see it: `/jevmate:setup` tells the person to run `jev auth set` in their own terminal.
 
 **Hooks.** The Bash guard answers `ask` or nothing; it never answers `allow`, so it cannot widen
 what the person permitted. It answers `deny` only above p = 0.90 and only where no prompt can

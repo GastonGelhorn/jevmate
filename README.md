@@ -1,4 +1,4 @@
-# jev
+# jevmate
 
 Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line and
 from Python. One request, about 250 ms, $0.042 per million input tokens, answers cached locally.
@@ -34,17 +34,17 @@ on rows you labelled, and `--abstain` hands the band it cannot decide to a reade
 
 ## Install
 
-As a Claude Code plugin (the repository is its own marketplace):
+As a Claude Code plugin (the repository is its own marketplace; the plugin is `jevmate`, the command is `jev`):
 
 ```bash
-claude plugin marketplace add GastonGelhorn/jev-cli
-claude plugin install jev@jev-cli          # asks for the key and the backend; hooks, skills, MCP tools and `jev` on PATH
+claude plugin marketplace add GastonGelhorn/jevmate
+claude plugin install jevmate@gastongelhorn          # asks for the key and the backend; hooks, skills, MCP tools and `jev` on PATH
 ```
 
 Or as a plain CLI, for Codex, OpenCode, scripts and cron:
 
 ```bash
-git clone <this repo> && cd jev-cli && ./install.sh     # verifies SHA256SUMS; ~/.local/bin/jev, ~/.local/share/jev, the skill symlinks
+git clone <this repo> && cd jevmate && ./install.sh     # verifies SHA256SUMS; ~/.local/bin/jev, ~/.local/share/jev, the skill symlinks
 jev auth set <key>                                     # stored with mode 0600; an sk-or- key configures OpenRouter
 jev doctor                                             # key, backend, one round trip
 ```
@@ -86,16 +86,16 @@ The plugin brings, besides the skill Claude reaches for on its own:
 
 | piece | what it does |
 |---|---|
-| `/jev:sift`, `/jev:tests`, `/jev:review`, `/jev:pr`, `/jev:triage` | the workflows as slash skills, for the person |
-| `/jev:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
-| `/jev:setup` | key, backend, health check, without the key ever entering the chat |
-| `jev:band-reader`, `jev:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks: neither costs the main context anything |
+| `/jevmate:sift`, `/jevmate:tests`, `/jevmate:review`, `/jevmate:pr`, `/jevmate:triage` | the workflows as slash skills, for the person |
+| `/jevmate:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
+| `/jevmate:setup` | key, backend, health check, without the key ever entering the chat |
+| `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks: neither costs the main context anything |
 | hooks | a guard on Bash that asks and never allows, learns what you let through and takes project rules; a red-suite triage the moment a test command fails; an injection screen on WebFetch and on curled content; an opt-in routing hint per prompt and an opt-in honesty check before a reply claims checks passed |
 | question packs | `jev q install core`: ten questions with their measured or starting thresholds, ready for `--q` |
 | MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session` as typed tool calls, one long-lived process |
 | saved questions | `jev tune … --save refund`, then `jev rank --q refund`: the measured threshold and band travel with the question |
 
-The desktop app does not render status lines, so there the numbers live in `/jev:stats` and in
+The desktop app does not render status lines, so there the numbers live in `/jevmate:stats` and in
 `jev watch` (Terminal panel); the terminal CLI also gets `jev statusline install`. `docs/PLUGIN.md`
 has every detail, `SECURITY.md` what leaves the machine (the state and the questions, nothing else).
 
@@ -118,8 +118,8 @@ jev/            the package: settings, questions, transport (keep-alive), cache,
 jev/cli/        one module per command family, imported only when its command runs
 jev/guide/      the playbook (`jev guide`) and recipes (`jev examples`), as Markdown
 bin/jev         the launcher (on PATH while the plugin is enabled)
-skills/         the skill Claude invokes, and the /jev:… ones the person invokes
-agents/         jev:band-reader
+skills/         the skill Claude invokes, and the /jevmate:… ones the person invokes
+agents/         jevmate:band-reader
 hooks/ .mcp.json .claude-plugin/   the plugin wiring; the repo is its own marketplace
 evals/          six cases for `claude plugin eval`
 tests/          python3 -m unittest discover -s tests
