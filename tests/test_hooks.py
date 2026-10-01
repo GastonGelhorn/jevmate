@@ -99,7 +99,7 @@ class Route(unittest.TestCase):
             ctx = json.loads(out)["hookSpecificOutput"]
             self.assertEqual(ctx["hookEventName"], "UserPromptSubmit")
             self.assertIn("jev route", ctx["additionalContext"])
-            for skipped in ("/jev:stats", "[Image: source: /tmp/x.png] " + "a" * 40, '@"/Users/x/file.sql" ' + "b" * 40):
+            for skipped in ("/jevmate:stats", "[Image: source: /tmp/x.png] " + "a" * 40, '@"/Users/x/file.sql" ' + "b" * 40):
                 code, out, _, t = run(["hook", "route"], stdin=json.dumps({"prompt": skipped, "session_id": "s"}))
                 self.assertEqual((out, t.calls), ("", []), skipped[:12])
             with mock.patch.dict("os.environ", {"JEV_ROUTE_CONF": "0.95"}):
