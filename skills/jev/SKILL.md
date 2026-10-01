@@ -88,9 +88,9 @@ same command without `--pick`: one key per row, `[u]` undoes.
 
 ## In the plugin
 
-Slash skills for the person: `/jev:sift <question> [paths]`, `/jev:tests [ref]`, `/jev:review [task]`,
-`/jev:pr <number>`, `/jev:triage <file> <question>`, `/jev:stats`, `/jev:setup`. Two agents with their own
-context: `jev:band-reader` (Haiku) labels the uncertain band a `--uncertain-out` file holds; `jev:reviewer`
+Slash skills for the person: `/jevmate:sift <question> [paths]`, `/jevmate:tests [ref]`, `/jevmate:review [task]`,
+`/jevmate:pr <number>`, `/jevmate:triage <file> <question>`, `/jevmate:stats`, `/jevmate:setup`. Two agents with their own
+context: `jevmate:band-reader` (Haiku) labels the uncertain band a `--uncertain-out` file holds; `jevmate:reviewer`
 (Sonnet) reads the hunks `jev diff` rated risky. The hooks also work for you without being asked: when a
 test command fails, a `jev triage:` line groups the failures by cause and says which the diff caused (the
 full output is saved for `jev cluster -i`); a `jev route:` line says when a prompt reads as routine work
@@ -99,7 +99,7 @@ worth a cheaper subagent; a `jev screen:` line flags fetched or curled content t
 exist as MCP tools (`decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`) when a typed call
 beats a shell command. Saved questions (`jev q list`, `--q NAME` on yes/rank/batch/label/stream) carry
 a measured threshold and band; prefer one when it fits, and save the winner of every `jev tune` with
-`--save NAME`. `jev session` (or `/jev:stats`) shows what went through jev this session and what that
+`--save NAME`. `jev session` (or `/jevmate:stats`) shows what went through jev this session and what that
 text would have cost to read.
 
 ## The commands
