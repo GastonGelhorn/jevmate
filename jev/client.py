@@ -38,9 +38,12 @@ class Client:
         try:
             self.api_key, self.key_source = settings.resolve_key(api_key)
         except AuthError:
-            if not settings.RUNTIME.dry_run:
+            if settings.RUNTIME.dry_run:
+                self.api_key, self.key_source = "", "(dry run, no key)"  # nothing leaves the machine
+            elif settings.is_local(self.base_url):
+                self.api_key, self.key_source = "", "(local backend, no key)"
+            else:
                 raise
-            self.api_key, self.key_source = "", "(dry run, no key)"  # nothing leaves the machine
         self.model = model or settings.default_model()
         self.timeout = timeout
         self.retries = retries
@@ -97,8 +100,9 @@ class Client:
             ledger.record(ledger.usage_row(self.label, n, self.last_ms, resp, self.last_request_id, self.last_attempts, cached, err))
 
     def _call(self, method: str, path: str, payload: bytes | None = None) -> dict:
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json; charset=utf-8",
-                   "Accept": "application/json", "User-Agent": f"jev/{VERSION}"}
+        headers = {"Content-Type": "application/json; charset=utf-8", "Accept": "application/json", "User-Agent": f"jev/{VERSION}"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         attempt = 0
         while True:
             attempt += 1
