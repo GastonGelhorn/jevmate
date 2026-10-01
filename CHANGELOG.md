@@ -2,64 +2,19 @@
 
 ## 1.3.0
 
-The plugin, the marketplace and the repository are called **jevmate** (the command stays `jev`): skills
-are `/jevmate:…`, agents `jevmate:band-reader` and `jevmate:reviewer`, MCP tools `mcp__plugin_jevmate_jev__*`,
-install with `claude plugin marketplace add GastonGelhorn/jevmate` and `claude plugin install jevmate@gastongelhorn`.
-A plugin name is permanent once published, which is why this happened before the first public release.
+First release.
 
-## 1.2.2
-
-`jev hooks tune` pairs only the asks the after-bash hook could witness: before its first `ran`
-row, an ask that nothing followed read as declined when nothing was recording what ran. The
-routing hint is opt-in and stricter (confidence 0.80, `JEV_ROUTE_CONF`), and skips attachments:
-on 101 real prompts the old bar hinted on half of them.
-
-## 1.2.1
-
-The triage line names the error, not the test.
-
-## 1.2.0
-
-Hooks that work without being asked: `after-bash` (PostToolUse and PostToolUseFailure on Bash)
-groups a failed test run by cause and says which failures the current diff caused, in one line,
-screens content fetched with curl, wget or gh, and records what ran so the guard never asks twice
-about a command you already let through; `route` (UserPromptSubmit) rates each prompt and hints
-when a cheaper subagent or lower effort is enough; `stop` (opt-in) holds a reply that claims tests
-passed when no test command ran. The guard takes project rules from `.jev/guard.json`, and
-`jev hooks tune` proposes this machine's ask bar from what you allowed and declined.
-
-Also: `/jevmate:pr` with the `jevmate:reviewer` agent (Sonnet), a shipped question pack (`jev q packs`,
-`jev q install core`), `jev batch --resume`, and Windows fallbacks (`py -3` in the hook commands,
-no `/dev/tty` or `select()` on the way).
-
-## 1.1.0
-
-A Claude Code plugin, and the repo is its own marketplace (`claude plugin marketplace add
-GastonGelhorn/jevmate`, `claude plugin install jevmate@gastongelhorn`): the skill, six slash skills (`/jevmate:sift`,
-`/jevmate:tests`, `/jevmate:review`, `/jevmate:triage`, `/jevmate:stats`, `/jevmate:setup`), the `jevmate:band-reader`
-agent (Haiku) for the uncertain band, the hooks wired by the plugin with a SessionStart hook that
-tags the agent's own `jev` calls per session, an MCP server (`jev mcp`: decide, ask, rank, sift,
-tests, diff, cluster, session), user configuration for the key and the backend, and an eval suite.
-
-New commands: `jev session` (the three measured rows for this session), `jev q` (saved questions:
-`jev tune --save NAME`, then `--q NAME` on yes / rank / batch / label / stream), `jev mcp`,
-`jev config set backend typesafe|openrouter`, `jev usage --by session`. `jev auth set` recognises
-an OpenRouter key and configures the backend. The analysis behind sift, tests, diff, failures and
-cluster moved into `jev.analysis`, usable from Python; session metrics into `jev.metrics`.
-
-## 1.0.0
-
-First release. A package (`jev/`) with a launcher, a skill file for Claude Code, Codex and
-OpenCode, and these commands: ask, yes, pick, rate; rank, batch, sift, tune, label, scaffold;
-tests, diff, failures, cluster, stream; hooks, hook, statusline, watch; usage, cost, cache,
-config, auth, doctor, models, schema, guide, examples, docs.
-
-Design points, each measured (see docs/MEASUREMENTS.md): items embedded in their own question,
-never indexed; a threshold sweep before a question decides at volume; an abstention band handed
-to a reader; a local answer cache justified by run-to-run jitter; hooks that ask and never allow;
-a per-session metric of text kept out of the agent's context, next to what it cost.
-
-Engineering: standard library only; one keep-alive HTTPS connection per worker thread; compact
-UTF-8 request bodies used as both the wire format and the cache key; command modules imported
-only when their command runs; the session transcript read incrementally by `jev watch`;
-checksummed install.
+- The `jev` command: one-item decisions (ask, yes, pick, rate); list grading with the item embedded in
+  its own question (rank, batch, sift, tune, label, scaffold); a change and a red suite (tests, diff,
+  failures, cluster, stream); saved questions (`jev q`, `--q NAME`, `jev tune --save`, the `core` pack);
+  the ledger and the session view (usage, cost, cache, session, watch, statusline); an MCP server
+  (`jev mcp`).
+- The Claude Code plugin **jevmate**, served from its own marketplace: the skill Claude invokes, the
+  slash skills `/jevmate:sift`, `tests`, `review`, `pr`, `triage`, `stats`, `setup`, the agents
+  `jevmate:band-reader` (Haiku) and `jevmate:reviewer` (Sonnet), MCP tools `mcp__plugin_jevmate_jev__*`,
+  and hooks that work unasked: a guard on Bash that asks and never allows, learns what you let through
+  and takes project rules; a red-suite triage the moment a test command fails; an injection screen on
+  fetched and curled content; an opt-in routing hint per prompt; an opt-in honesty check before a
+  reply claims checks passed; a SessionStart hook that tags every `jev` call with the session.
+- Measured defaults (docs/MEASUREMENTS.md), 84 tests, a CI matrix on five Pythons and two OSes,
+  SECURITY.md, docs/PLUGIN.md, an eval suite for `claude plugin eval`.
