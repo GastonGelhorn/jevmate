@@ -94,7 +94,9 @@ context: `jevmate:band-reader` (Haiku) labels the uncertain band a `--uncertain-
 (Sonnet) reads the hunks `jev diff` rated risky. The hooks also work for you without being asked: when a
 test command fails, a `jev triage:` line groups the failures by cause and says which the diff caused (the
 full output is saved for `jev cluster -i`); a `jev route:` line says when a prompt reads as routine work
-worth a cheaper subagent; a `jev screen:` line flags fetched or curled content that talks to an agent.
+worth a cheaper subagent; a `jev screen:` line flags fetched or curled content that talks to an agent; long command output arrives
+trimmed to what matters, with a first line saying where the full output is; installed skills and plugins are
+inspected for instructions aimed at you, and `jev inspect` does it on demand.
 `jev q install core` brings ten questions with their thresholds (`jev q packs`). The same decisions
 exist as MCP tools (`decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`) when a typed call
 beats a shell command. Saved questions (`jev q list`, `--q NAME` on yes/rank/batch/label/stream) carry
