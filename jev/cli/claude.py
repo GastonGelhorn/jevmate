@@ -53,7 +53,7 @@ def register(sub) -> None:
     se = sub.add_parser("session", help="this session: what went through jev, what that text would have cost to read, what it saved",
                         description="Three measured rows for the current Claude Code session (found by its id when the plugin's SessionStart "
                                     "hook ran, else the most recent transcript for this directory), next to the session's model spend "
-                                    "estimated from the transcript at list price. `/jev:stats` shows this in the chat.")
+                                    "estimated from the transcript at list price. `/jevmate:stats` shows this in the chat.")
     se.add_argument("--cwd", help="project directory (default: the current one)")
     se.add_argument("--session", help="session id (or prefix)")
     se.add_argument("--transcript", help="a specific transcript file")
@@ -277,7 +277,7 @@ def cmd_statusline(args) -> int:
         prev = settings.config().get("statusline_prev")
         if prev:
             print(f"  previous status line kept: {prev!r}")
-        print("  the desktop app ignores status lines; there, `/jev:stats` in the chat or `jev watch` in the Terminal panel show the same numbers")
+        print("  the desktop app ignores status lines; there, `/jevmate:stats` in the chat or `jev watch` in the Terminal panel show the same numbers")
         return 0
     conf = dict(settings.config())
     if args.action == "install":

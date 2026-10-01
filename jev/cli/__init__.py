@@ -36,7 +36,7 @@ a change, a red suite, a stream
 
 claude code
   jev session                   this session: what went through jev, what that would have cost to read, what it saved
-  jev watch                     the same, live, for the desktop app's Terminal panel   ·   /jev:stats in the chat
+  jev watch                     the same, live, for the desktop app's Terminal panel   ·   /jevmate:stats in the chat
   jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch (plain CLI installs; the plugin wires its own)
   jev statusline install        the session's cost next to what jev decided, under the prompt (terminal CLI)
   jev q list|save|show          saved questions: a phrasing with its measured threshold and band (jev tune --save NAME; --q NAME anywhere)
