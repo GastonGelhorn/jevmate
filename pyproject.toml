@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevmate"
-version = "1.3.0"
+version = "1.4.0"
 description = "Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line and Python"
 readme = "README.md"
 license = { file = "LICENSE" }
