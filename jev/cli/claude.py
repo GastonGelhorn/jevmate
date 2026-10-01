@@ -63,6 +63,18 @@ def register(sub) -> None:
     se.add_argument("--compact", action="store_true")
     se.set_defaults(fn=cmd_session)
 
+    ins = sub.add_parser("inspect", help="read installed skills, plugins, agents and hook files for instructions aimed at an agent, and planted markers",
+                         description="Two questions per instruction file somebody else wrote and your agent will obey: does it tell an agent to do "
+                                     "something the person would not want (exfiltrate, run concealed commands, override the person, hide actions), and "
+                                     "does it plant a phrase or link the agent must repeat. Only new or changed files are sent; the rest come from the "
+                                     "cache. The plugin's SessionStart hook runs this quietly and speaks only when a new file flags.")
+    ins.add_argument("paths", nargs="*", help="directories or files (default: the skills and plugin directories of Claude Code, Codex and OpenCode, plus the project's .claude)")
+    ins.add_argument("--all", action="store_true", help="re-read every file, ignoring the cache")
+    ins.add_argument("--bar", type=float, default=0.60, help="p at which a file is flagged (default 0.60)")
+    ins.add_argument("--json", action="store_true")
+    ins.add_argument("--compact", action="store_true")
+    ins.set_defaults(fn=cmd_inspect)
+
     wt = sub.add_parser("watch", help="live view of `jev session` for the desktop app's Terminal panel (the app ignores status lines)",
                         description="Refreshes `jev session` in place; the transcript is read incrementally. Run it in the app's Terminal panel.")
     wt.add_argument("--cwd", help="project directory (default: the current one)")
@@ -124,6 +136,7 @@ def cmd_hooks(args) -> int:
         print(f"  screen (PostToolUse WebFetch -> note)  {'installed' if have['PostToolUse'] else 'not installed'}")
         print(f"  command: {launcher()} hook guard|screen   (the plugin wires its own copy; do not install both)")
         print("  env: JEV_GUARD_ASK=0.60 JEV_GUARD_DENY=0.90 JEV_GUARD_MODE=ask|deny|off · JEV_SCREEN_WARN=0.55 JEV_SCREEN_MODE=on|off")
+        print("       JEV_TRIM_MODE=on|off JEV_TRIM_MIN=8000 (tokens) · JEV_TRIAGE_MODE=on|off · JEV_INSPECT_MODE=on|off · JEV_ROUTE_MODE=off|on · JEV_HONESTY_MODE=off|on")
         rows = ledger.hook_rows(None)
         if rows:
             g = [r for r in rows if r.get("hook") == "guard"]
@@ -302,6 +315,30 @@ def cmd_statusline(args) -> int:
         print("  `jev statusline preview` shows the row now · `jev config set agent_price 10` sets the agent's input price behind 'not spent'")
     else:
         print(f"status line removed from {path}")
+    return 0
+
+
+def cmd_inspect(args) -> int:
+    from ..inspect import inspect, roots
+    from ..render import dump
+    from ._common import client_for
+    paths = args.paths or roots(os.getcwd())
+    if not paths:
+        print("nothing to inspect: no skills or plugin directories found")
+        return 0
+    rows, sent = inspect(client_for(args, "inspect"), paths, only_changed=not args.all, bar=args.bar)
+    if args.json:
+        dump(args, {"files": rows, "sent": sent})
+        return 0
+    flagged = [r for r in rows if r["flag"]]
+    print(f"{len(rows)} instruction file(s) · {sent} read now, {len(rows) - sent} from the cache · {len(flagged)} flagged at p >= {args.bar}")
+    print(f"\n{'flag':<5} {'harm':>5} {'marker':>6}  path")
+    for r in rows[:40]:
+        print(f"{'!' if r['flag'] else '':<5} {r['harm']:>5.2f} {r['marker']:>6.2f}  {r['path']}")
+    if len(rows) > 40:
+        print(f"… {len(rows) - 40} more (--json for all)")
+    if flagged:
+        print("\nread a flagged file before relying on it: `harm` is an instruction the person would not want obeyed, `marker` a phrase or link the agent must plant.")
     return 0
 
 

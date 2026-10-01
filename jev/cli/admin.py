@@ -27,7 +27,7 @@ CONFIG_KEYS = {
     "cache": ("cache", str, "on | off: the local answer cache (default on; --no-cache skips it once)"),
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
-    "backend": ("backend", str, "typesafe | openrouter: sets base_url and model together"),
+    "backend": ("backend", str, "typesafe | openrouter | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
 }
 
 
@@ -143,9 +143,12 @@ def cmd_doctor(args) -> int:
 
     step("python", lambda: sys.version.split()[0])
     step("home", lambda: f"{settings.HOME}" + (" (legacy location)" if settings.HOME.name == "typesafe" else ""))
-    step("key", lambda: "{} from {}".format(*(lambda k, s: (settings.mask(k), s))(*settings.resolve_key(args.api_key))))
     base = settings.base_url()
-    step("backend", lambda: f"{settings.backend_name()} · {base} · model {args.model or settings.default_model()}")
+    if settings.is_local(base):
+        step("key", lambda: "{} from {}".format(*(lambda k, s: (settings.mask(k), s))(*settings.resolve_key(args.api_key))), optional=True)
+    else:
+        step("key", lambda: "{} from {}".format(*(lambda k, s: (settings.mask(k), s))(*settings.resolve_key(args.api_key))))
+    step("backend", lambda: f"{settings.backend_name()} · {base} · model {args.model or settings.default_model()}" + (" · local, no key needed" if settings.is_local(base) else ""))
     c = client_for(args, "doctor", record=False)
     step("GET /v1/models", lambda: f"{[m.get('name') for m in c.models().get('models', [])]} in {c.last_ms:.0f} ms", optional=True)
 
@@ -204,13 +207,19 @@ def cmd_config(args) -> int:
             settings.save_config(cfg)
             print("backend reset to the vendor's host")
             return 0
-        if args.value not in settings.BACKENDS:
-            raise UsageError(f"jev config set backend <{'|'.join(settings.BACKENDS)}>")
-        url, model = settings.BACKENDS[args.value]
-        cfg.update(base_url=url, model=model)
-        settings.save_config(cfg)
-        print(f"backend {args.value}: {url} · model {model}")
-        return 0
+        if args.value in settings.BACKENDS:
+            url, model = settings.BACKENDS[args.value]
+            cfg.update(base_url=url, model=model)
+            settings.save_config(cfg)
+            print(f"backend {args.value}: {url} · model {model}" + ("  (local: no key needed)" if settings.is_local(url) else ""))
+            return 0
+        if args.value.startswith(("http://", "https://")):
+            cfg["base_url"] = args.value.rstrip("/")
+            settings.save_config(cfg)
+            print(f"backend {settings.backend_name()}: {cfg['base_url']} · model {settings.default_model()}  (jev config set model … if the server names it differently"
+                  + ("; no key needed)" if settings.is_local(cfg["base_url"]) else ")"))
+            return 0
+        raise UsageError(f"jev config set backend <{'|'.join(settings.BACKENDS)}|http(s)://host[:port]>")
     real, typ, _ = CONFIG_KEYS[args.key]
     if args.action == "unset":
         cfg.pop(real, None)

@@ -39,6 +39,7 @@ claude code
   jev watch                     the same, live, for the desktop app's Terminal panel   ·   /jevmate:stats in the chat
   jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch (plain CLI installs; the plugin wires its own)
   jev statusline install        the session's cost next to what jev decided, under the prompt (terminal CLI)
+  jev inspect                   installed skills, plugins and agents read for instructions aimed at an agent (also at session start)
   jev q list|save|show          saved questions: a phrasing with its measured threshold and band (jev tune --save NAME; --q NAME anywhere)
   jev mcp                       the same decisions as MCP tools (the plugin runs it)
 
@@ -56,7 +57,7 @@ COMMANDS = {
     "cluster": "debug", "tests": "debug", "diff": "debug", "failures": "debug", "stream": "debug",
     "auth": "admin", "doctor": "admin", "models": "admin", "config": "admin", "cost": "admin", "cache": "admin",
     "schema": "admin", "usage": "admin", "version": "admin",
-    "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude",
+    "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude", "inspect": "claude",
     "q": "library", "mcp": "library",
     "guide": "docs", "examples": "docs", "docs": "docs",
 }
