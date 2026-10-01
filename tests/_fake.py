@@ -33,6 +33,8 @@ def p_for(question: dict, state) -> float:
         src = instr["candidate"]
     elif isinstance(state, dict) and "`commands`" in str(instr) and "commands" in state:
         src = state["commands"]  # the honesty hook's second question judges the commands, not the reply
+    elif isinstance(state, dict) and "`request`" in str(instr) and "request" in state:
+        src = state["request"]  # the guard's request question judges the person's prompt
     else:
         src = state
     text = json.dumps(src, ensure_ascii=False).lower()
@@ -64,6 +66,7 @@ class FakeTransport:
 
     def request(self, method, path, body=None, headers=None):
         self.calls.append((method, path, body))
+        self.last_headers = dict(headers or {})
         status = self.statuses.pop(0) if self.statuses else 200
         if status != 200:
             return status, {"retry-after": "0"}, json.dumps({"error": f"scripted {status}"}).encode()
