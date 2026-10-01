@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start", "timeout": 5 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook session-start", "timeout": 20 }
         ]
       }
     ],

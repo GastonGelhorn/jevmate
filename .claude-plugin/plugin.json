@@ -1,7 +1,7 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "jevmate: calibrated yes/no, pick-one and rubric decisions for coding agents: rank and triage hundreds of items without reading them, pick the tests a change can break, review hunks by risk, cluster a red suite by cause; a guard on Bash that asks and never allows, an injection screen on fetched content, a red-suite triage the moment a test command fails, a routing hint per prompt, and a per-session view of what it kept out of the context.",
   "author": {
     "name": "Gaston Gelhorn"
@@ -62,8 +62,20 @@
     "honesty_mode": {
       "type": "string",
       "title": "Honesty check (opt-in)",
-      "description": "on: when a reply claims tests, a build or a check passed but no such command ran this turn, ask Claude to run it before stopping. off (default): nothing.",
+      "description": "on: when a reply claims tests, a build or a check passed but no test, build or lint command ran this turn, ask Claude to run it before stopping (the transcript is checked first; the model is asked only when the wording is ambiguous). off (default): nothing.",
       "default": "off"
+    },
+    "trim_mode": {
+      "type": "string",
+      "title": "Trim long command output",
+      "description": "on: command output above ~8,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
+      "default": "on"
+    },
+    "inspect_mode": {
+      "type": "string",
+      "title": "Inspect installed instructions",
+      "description": "on: at session start, skills, plugins, agents and hook files that are new or changed since the last look are read for instructions aimed at an agent and for planted markers; a line of context appears only when something flags. off: nothing. `jev inspect` runs it by hand.",
+      "default": "on"
     }
   }
 }
