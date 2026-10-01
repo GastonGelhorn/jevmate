@@ -1,7 +1,10 @@
 # jevmate
 
-Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line and
-from Python. One request, about 250 ms, $0.042 per million input tokens, answers cached locally.
+Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line, from
+Python and as a Claude Code plugin. One request, about 250 ms, $0.042 per million input tokens (or
+free on a local server), answers cached locally. The part nobody else ships: every threshold is
+measured before it decides anything (`jev tune`), the measurement travels with the question
+(`jev q`), and every session shows what was kept out of the context and what that would have cost.
 
 An agent is an expensive, inconsistent judge of repeated small questions, and it cannot tell you
 how sure it is. jev hands those questions to a decision model that returns a real probability,
@@ -90,7 +93,7 @@ The plugin brings, besides the skill Claude reaches for on its own:
 | `/jevmate:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
 | `/jevmate:setup` | key, backend, health check, without the key ever entering the chat |
 | `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks: neither costs the main context anything |
-| hooks | a guard on Bash that asks and never allows, learns what you let through and takes project rules; a red-suite triage the moment a test command fails; an injection screen on WebFetch and on curled content; an opt-in routing hint per prompt and an opt-in honesty check before a reply claims checks passed |
+| hooks | a guard on Bash that asks and never allows, learns what you let through, takes project rules and knows what you last asked for; long command output trimmed to what carries information (the full output on disk); a red-suite triage the moment a test command fails, quick causes first; an injection screen on WebFetch and on curled content; installed skills and plugins inspected for instructions aimed at an agent; opt-in: a routing hint per prompt and an honesty check before a reply claims checks passed |
 | question packs | `jev q install core`: ten questions with their measured or starting thresholds, ready for `--q` |
 | MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session` as typed tool calls, one long-lived process |
 | saved questions | `jev tune … --save refund`, then `jev rank --q refund`: the measured threshold and band travel with the question |
@@ -98,6 +101,12 @@ The plugin brings, besides the skill Claude reaches for on its own:
 The desktop app does not render status lines, so there the numbers live in `/jevmate:stats` and in
 `jev watch` (Terminal panel); the terminal CLI also gets `jev statusline install`. `docs/PLUGIN.md`
 has every detail, `SECURITY.md` what leaves the machine (the state and the questions, nothing else).
+
+## Backends
+
+TypeSafe's hosted API, OpenRouter, or any server that answers the same `/v1/systemone` endpoint:
+`jev config set backend ollaya` (open decision models on your machine, no key), `jev config set backend von`,
+or `jev config set backend http://host:port`. Thresholds are per model: `jev tune` again after switching.
 
 ## From Python
 
