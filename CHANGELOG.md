@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+The plugin, the marketplace and the repository are called **jevmate** (the command stays `jev`): skills
+are `/jevmate:…`, agents `jevmate:band-reader` and `jevmate:reviewer`, MCP tools `mcp__plugin_jevmate_jev__*`,
+install with `claude plugin marketplace add GastonGelhorn/jevmate` and `claude plugin install jevmate@gastongelhorn`.
+A plugin name is permanent once published, which is why this happened before the first public release.
+
 ## 1.2.2
 
 `jev hooks tune` pairs only the asks the after-bash hook could witness: before its first `ran`
@@ -21,15 +28,15 @@ when a cheaper subagent or lower effort is enough; `stop` (opt-in) holds a reply
 passed when no test command ran. The guard takes project rules from `.jev/guard.json`, and
 `jev hooks tune` proposes this machine's ask bar from what you allowed and declined.
 
-Also: `/jev:pr` with the `jev:reviewer` agent (Sonnet), a shipped question pack (`jev q packs`,
+Also: `/jevmate:pr` with the `jevmate:reviewer` agent (Sonnet), a shipped question pack (`jev q packs`,
 `jev q install core`), `jev batch --resume`, and Windows fallbacks (`py -3` in the hook commands,
 no `/dev/tty` or `select()` on the way).
 
 ## 1.1.0
 
 A Claude Code plugin, and the repo is its own marketplace (`claude plugin marketplace add
-GastonGelhorn/jev-cli`, `claude plugin install jev@jev-cli`): the skill, six slash skills (`/jev:sift`,
-`/jev:tests`, `/jev:review`, `/jev:triage`, `/jev:stats`, `/jev:setup`), the `jev:band-reader`
+GastonGelhorn/jevmate`, `claude plugin install jevmate@gastongelhorn`): the skill, six slash skills (`/jevmate:sift`,
+`/jevmate:tests`, `/jevmate:review`, `/jevmate:triage`, `/jevmate:stats`, `/jevmate:setup`), the `jevmate:band-reader`
 agent (Haiku) for the uncertain band, the hooks wired by the plugin with a SessionStart hook that
 tags the agent's own `jev` calls per session, an MCP server (`jev mcp`: decide, ask, rank, sift,
 tests, diff, cluster, session), user configuration for the key and the backend, and an eval suite.
