@@ -30,10 +30,13 @@ CACHE_TTL_DAYS = 30.0
 
 LIB_DIR = Path.home() / ".local" / "share" / "jev"   # where install.sh puts the package; `import jev` works from here
 
-BACKENDS = {  # name -> (base url, default model)
+BACKENDS = {  # name -> (base url, default model). Any server that answers POST /v1/systemone works; these are the known ones.
     "typesafe": (VENDOR_URL, "jev-latest"),
     "openrouter": ("https://openrouter.ai/api", "~typesafe/jev-latest"),
+    "ollaya": ("http://localhost:11435", "laya"),       # local, open decision models, no key needed
+    "von": ("http://localhost:8000", "von-1.3.0"),       # local, open System One model, no key needed
 }
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 
 # --dry-run and --no-cache are per process; the CLI flips them before dispatching.
 RUNTIME = SimpleNamespace(dry_run=False, cache=True)
@@ -126,9 +129,17 @@ def rpm_limit() -> int:
     return int(v) if v else RPM_LIMIT
 
 
+def is_local(url: str) -> bool:
+    """A server on this machine: plain http, or a loopback host. No key is required to talk to it."""
+    from urllib.parse import urlsplit
+    u = urlsplit(url)
+    return u.scheme == "http" or (u.hostname or "") in LOCAL_HOSTS
+
+
 def backend_name() -> str:
     url = base_url()
-    return next((k for k, (u, _) in BACKENDS.items() if u == url), "custom")
+    known = next((k for k, (u, _) in BACKENDS.items() if u.rstrip("/") == url.rstrip("/")), None)
+    return known or ("local" if is_local(url) else "custom")
 
 
 def option(key: str, env: str | None = None, default=None):
