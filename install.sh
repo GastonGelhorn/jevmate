@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs jev from this checkout WITHOUT the plugin system: the package to ~/.local/share/jev, the launcher
 # to ~/.local/bin/jev, the skill into every agent skills directory that exists. Claude Code users can instead
-# `claude plugin marketplace add GastonGelhorn/jev-cli && claude plugin install jev@jev-cli`, which also wires the hooks. Verifies SHA256SUMS first, so what you
+# `claude plugin marketplace add GastonGelhorn/jevmate && claude plugin install jevmate@gastongelhorn`, which also wires the hooks. Verifies SHA256SUMS first, so what you
 # audited is what runs (tools/checksums.sh regenerates the file after a change).
 set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
