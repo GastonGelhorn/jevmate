@@ -28,7 +28,7 @@ no `/dev/tty` or `select()` on the way).
 ## 1.1.0
 
 A Claude Code plugin, and the repo is its own marketplace (`claude plugin marketplace add
-OWNER/jev-cli`, `claude plugin install jev@jev-cli`): the skill, six slash skills (`/jev:sift`,
+GastonGelhorn/jev-cli`, `claude plugin install jev@jev-cli`): the skill, six slash skills (`/jev:sift`,
 `/jev:tests`, `/jev:review`, `/jev:triage`, `/jev:stats`, `/jev:setup`), the `jev:band-reader`
 agent (Haiku) for the uncertain band, the hooks wired by the plugin with a SessionStart hook that
 tags the agent's own `jev` calls per session, an MCP server (`jev mcp`: decide, ask, rank, sift,
