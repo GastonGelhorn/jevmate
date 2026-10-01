@@ -150,24 +150,30 @@ def span(a: str | None, z: str | None) -> str:
 def jev_side(cwd: str, session_id: str | None, since: str, turn_ts: list[str] | None = None, cache_read_price: float = 0.25) -> dict:
     rows = ledger.session_rows(cwd, session_id, since)
     tag = ledger.session_tag(session_id)
-    asked = ledger.asked_count(ledger.hook_rows(), since, tag)
+    hooks = ledger.hook_rows()
+    asked = ledger.asked_count(hooks, since, tag)
+    # command output the trim hook kept out of the context, by session tag (or the time window without one)
+    trims = [h for h in hooks if h.get("hook") == "trim" and h["ts"] >= since and (not tag or h.get("agent") in (None, "", tag))]
+    trimmed = sum(int(h.get("dropped_tokens") or 0) for h in trims)
     tokens = sum(r.get("in", 0) + (r.get("cached_in") or 0) for r in rows)
     paid = settings.cost_usd(sum(r.get("in", 0) for r in rows))
-    once = tokens / 1e6 * settings.agent_price()
+    kept_out = tokens + trimmed
+    once = kept_out / 1e6 * settings.agent_price()
     reread = 0.0
     if turn_ts:  # text the agent reads is re-sent on every later turn as a cache read while it stays in context
-        for r in rows:
+        for ts, n in [(r["ts"], r.get("in", 0) + (r.get("cached_in") or 0)) for r in rows] + [(h["ts"], int(h.get("dropped_tokens") or 0)) for h in trims]:
             try:
-                utc = datetime.fromisoformat(r["ts"]).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                utc = datetime.fromisoformat(ts).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
             except (ValueError, KeyError):
                 continue
             after = len(turn_ts) - bisect_right(turn_ts, utc)
-            reread += (r.get("in", 0) + (r.get("cached_in") or 0)) / 1e6 * after * cache_read_price
+            reread += n / 1e6 * after * cache_read_price
     labels: dict[str, int] = {}
     for r in rows:
         labels[str(r.get("cmd") or "?")] = labels.get(str(r.get("cmd") or "?"), 0) + r.get("in", 0) + (r.get("cached_in") or 0)
     would = once + reread
     return {"requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
+            "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "once": once, "reread": reread, "would": would, "saved": would - paid, "asked": asked,
             "labels": dict(sorted(labels.items(), key=lambda kv: -kv[1])), "agent_price": settings.agent_price(), "cache_read_price": cache_read_price}
 
@@ -219,12 +225,14 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
                          f" · cache write {fmt_k(d['cw']):>6}   {y}~${d['usd']:,.2f}{r0}")
         lines.append(f"  {'session':<14}{m['turns']:>5} turns   {y}~${m['usd']:,.2f}{r0} · context now {fmt_k(m['ctx'])} tokens ({100 * m['ctx'] / m['ctx_size']:.0f}% of {fmt_k(m['ctx_size'])})")
     lines.append(f"\n{b}jev side{r0}{dim}  this session{r0}")
-    if not j["requests"] and not j["asked"]:
+    if not j["requests"] and not j["asked"] and not j.get("trimmed"):
         lines.append(f"  {dim}nothing decided yet this session · `jev sift`, `jev tests`, `jev cluster` … will show up here{r0}")
         return "\n".join(lines)
     lines.append(f"  {b}went through jev{r0}   {g}{j['decisions']:,} decisions{r0} over {j['tokens']:,} tokens of text · {j['requests']} request(s)"
                  + (f" ({j['cached']} from cache)" if j["cached"] else "") + f" · {g}${j['paid']:.4f} paid to jev{r0}"
                  + (f" · {y}hooks asked {j['asked']}×{r0}" if j["asked"] else ""))
+    if j.get("trimmed"):
+        lines.append(f"  {b}trimmed{r0}            {g}{j['trimmed']:,} tokens{r0} of command output kept out of the context in {j['trim_runs']} run(s) (the full outputs are on disk)")
     lines.append(f"  {b}would have cost{r0}    {y}~${j['would']:.2f}{r0} had the agent read that text itself: ${j['once']:.2f} once as input (${j['agent_price']:g}/M)"
                  + (f" + ${j['reread']:.2f} re-read on the later turns (cache, ${j['cache_read_price']:g}/M)" if m else ""))
     lines.append(f"  {b}saved{r0}              {g}~${j['saved']:.2f} at most{r0}{dim} — minus whatever the agent read anyway from the uncertain band{r0}"
@@ -241,7 +249,7 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
 def one_line(s: dict) -> str:
     """A status-line sized version."""
     j = s["jev"]
-    if not j["requests"] and not j["asked"]:
+    if not j["requests"] and not j["asked"] and not j.get("trimmed"):
         return "jev: nothing decided yet this session"
-    return (f"jev: {j['decisions']:,} decisions · {fmt_k(j['tokens'])} tokens kept out · ~${j['would']:.2f} not spent (ceiling)"
+    return (f"jev: {j['decisions']:,} decisions · {fmt_k(j.get('kept_out', j['tokens']))} tokens kept out · ~${j['would']:.2f} not spent (ceiling)"
             + (f" · hooks asked {j['asked']}" if j["asked"] else "") + f" · ${j['paid']:.4f} paid")
