@@ -37,7 +37,7 @@ on rows you labelled, and `--abstain` hands the band it cannot decide to a reade
 As a Claude Code plugin (the repository is its own marketplace):
 
 ```bash
-claude plugin marketplace add OWNER/jev-cli
+claude plugin marketplace add GastonGelhorn/jev-cli
 claude plugin install jev@jev-cli          # asks for the key and the backend; hooks, skills, MCP tools and `jev` on PATH
 ```
 

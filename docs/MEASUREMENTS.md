@@ -68,10 +68,10 @@ on three ports, 3 × a Decimal rounding assertion), shuffled. `jev cluster --spl
 refused connection (the redis port) stayed a singleton at p=0.67 against the 0.70 bar, and
 `--abstain 0.5 0.7` named it as a near miss. 11 of 12 grouped right, the twelfth flagged.
 
-`jev tests` on a 12-file PHPUnit suite of a private Laravel package: the diff "an attachment carries its alternative text"
-ranked the attachment test file 0.98 with everything else at or under 0.17; the diff "the deep page
-carries its caller's eager loads" ranked the pagination test 0.95 and the repository test
-0.59, the rest at or under 0.14. One request each, about 450 ms, $0.0004.
+`jev tests` on a 12-file PHPUnit suite of a private Laravel package: the diff "an attachment carries its
+alternative text" ranked the attachment test file 0.98 with everything else at or under 0.17; the diff
+"the deep page carries its caller's eager loads" ranked the pagination test 0.95 and the repository
+test 0.59, the rest at or under 0.14. One request each, about 450 ms, $0.0004.
 
 ## The guard's bars (2026-09-24)
 

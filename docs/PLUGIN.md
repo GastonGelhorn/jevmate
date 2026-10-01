@@ -17,7 +17,7 @@ evals/                          six cases for `claude plugin eval`
 ## Install
 
 ```bash
-claude plugin marketplace add OWNER/jev-cli      # once
+claude plugin marketplace add GastonGelhorn/jev-cli      # once
 claude plugin install jev@jev-cli                # prompts for the key and the backend
 claude plugin update jev@jev-cli                 # later
 ```
