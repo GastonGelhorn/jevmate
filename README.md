@@ -1,16 +1,23 @@
 # jevmate
 
-Calibrated yes/no, pick-one and rubric decisions for coding agents, from the command line, from
-Python and as a Claude Code plugin. One request, about 250 ms, $0.042 per million input tokens (or
-free on a local server), answers cached locally. The part nobody else ships: every threshold is
-measured before it decides anything (`jev tune`), the measurement travels with the question
-(`jev q`), and every session shows what was kept out of the context and what that would have cost.
+Jev, from the shell, for coding agents. A CLI, a Claude Code plugin and an MCP server around
+[TypeSafe's Jev](https://docs.typesafe.ai): a small, fast model that answers yes/no, pick-one and
+"where on this scale" questions with a calibrated probability instead of a paragraph.
 
-An agent is an expensive, inconsistent judge of repeated small questions, and it cannot tell you
-how sure it is. jev hands those questions to a decision model that returns a real probability,
-so the agent never reads a thousand items into its context window to sort them, never trusts its
-own confidence to gate an action, and never pays twice for the same answer. It ships with the
-skill file that teaches Claude Code (and Codex, OpenCode) when to reach for it.
+I wrote this for my own Claude Code sessions. The agent kept reading forty files to find the three
+that mattered, or running a whole test suite to learn which tests a change could break. Those are
+judgment calls that repeat, and a frontier model is an expensive way to make them. Jev makes them
+in about 250 ms for $0.04 per million tokens (or for nothing, on a local server), and this repo wraps
+it so the agent reaches for it on its own.
+
+Three things I cared about that I did not find elsewhere:
+
+- the threshold is measured before a question decides anything (`jev tune`), and the measurement
+  travels with the question (`jev q`);
+- the session tells you what Jev kept out of the context and what reading it would have cost
+  (`jev session`, `/jevmate:stats`);
+- the hooks never widen what you allowed. The Bash guard asks or stays quiet, it never answers
+  "allow", and it learns from what you let through.
 
 ```
 $ jev yes 'Does `text` ask for money back?' --field text=@mail.txt
@@ -24,118 +31,98 @@ $ jev sift --query "where failed deliveries are retried" src/ --top 3
 $ jev tests --ref main --top 3 --paths-only | xargs vendor/bin/phpunit
 ```
 
-| Question | Asks | CLI | Returns |
-|---|---|---|---|
-| noul | is this true? | `jev yes` | P(yes), 0..1 |
-| choice | which one of these? | `jev pick` | option, P per option, confidence |
-| score | where on this rubric? | `jev rate` | position between your levels, confidence |
-
-`jev ask` mixes any number of them in one request. The list commands (`rank`, `batch`, `sift`,
-`tests`, `diff`, `failures`, `cluster`, `stream`) grade hundreds of items per request with each
-item embedded in its own question. `jev tune` picks the phrasing and threshold that measure best
-on rows you labelled, and `--abstain` hands the band it cannot decide to a reader.
-
 ## Install
 
-As a Claude Code plugin (the repository is its own marketplace; the plugin is `jevmate`, the command is `jev`):
+As a Claude Code plugin. The repo is its own marketplace:
 
 ```bash
 claude plugin marketplace add GastonGelhorn/jevmate
-claude plugin install jevmate@gastongelhorn          # asks for the key and the backend; hooks, skills, MCP tools and `jev` on PATH
+claude plugin install jevmate@gastongelhorn
 ```
 
-Or as a plain CLI, for Codex, OpenCode, scripts and cron:
+That brings the skill, the slash commands, the hooks, the MCP tools and `jev` on the PATH of the
+Bash tool. You will be asked for a key (TypeSafe or OpenRouter) and a backend; both can wait.
+
+As a plain CLI, for Codex, OpenCode, scripts or cron:
 
 ```bash
-git clone <this repo> && cd jevmate && ./install.sh     # verifies SHA256SUMS; ~/.local/bin/jev, ~/.local/share/jev, the skill symlinks
-jev auth set <key>                                     # stored with mode 0600; an sk-or- key configures OpenRouter
-jev doctor                                             # key, backend, one round trip
+git clone https://github.com/GastonGelhorn/jevmate && cd jevmate && ./install.sh
+jev auth set <key>      # an sk-or- key configures OpenRouter by itself
+jev doctor
 ```
 
-Or `pip install .` for the package and the `jev` entry point alone. Python 3.10 or newer, standard
-library only, no dependencies.
+`pip install .` works too. Python 3.10 or newer, standard library only.
 
-The model is TypeSafe's Jev (docs.typesafe.ai). Keys come from their console, or from OpenRouter,
-which serves the same endpoint:
+## What it does
 
-```bash
-jev config set base_url https://openrouter.ai/api
-jev config set model '~typesafe/jev-latest'
-```
+| question | asks | command | returns |
+|---|---|---|---|
+| noul | is this true? | `jev yes` | P(yes) |
+| choice | which one? | `jev pick` | the option, a probability per option, a confidence |
+| score | where on this scale? | `jev rate` | a position between your levels, a confidence |
 
-## What the measurements say
+`jev ask` puts several questions in one request. The list commands grade hundreds of items per
+request, each item inside its own question: `rank` and `batch` for anything, `sift` for files and
+grep hits, `tests` for the test files a diff exercises, `diff` for hunks by risk, `failures` and
+`cluster` for a red suite, `stream` for a log you are tailing.
 
-Everything in the defaults was measured; `docs/MEASUREMENTS.md` has the numbers and dates.
-
-- **A threshold is not 0.5.** One question on 80 labelled commits: 63.8% at 0.50, 76.2% at its
-  best threshold. Four phrasings of the judgment spanned ten points; averaging them gained 1.2
-  points for four times the cost. `jev tune` finds the threshold; a held-out check transferred
-  it to fresh rows at the same accuracy.
-- **Positions in long arrays are unreliable.** `items[i]` was wrong 86 times in 320 at 150 items
-  per request; an item embedded in its own question was wrong 0 times at 320 per request. Every
-  list command embeds.
-- **Identical requests are not identical answers.** Six in a row: 0.88 0.89 0.90 0.89 0.89 0.88.
-  The cache keeps the first; `jev tune` reports how many rows sit within ±0.02 of the bar.
-- **The band is where the errors live.** Confident answers from a 76% question were 100% right;
-  the hybrid of jev deciding the confident tail and the agent reading the band scored 85% while
-  the agent read 36% of the rows.
-- **Where it pays.** Filtering 400 items costs the agent zero context and jev a fraction of a
-  cent; a hook decision costs 300 ms. Where it does not: a long session's spend is dominated by
-  the conversation re-sent every turn, which no filter touches. `jev watch` shows both numbers.
+Before a question decides anything at volume, `jev tune` runs a few phrasings over rows you labelled
+and reports the threshold, the confusion matrix, how many rows sit close enough to the bar to flip
+between runs, and the band to hand to a reader. `--save` keeps the winner; `--q NAME` uses it anywhere.
+`jev q install core` brings ten questions with the thresholds they shipped with.
 
 ## In Claude Code
 
-The plugin brings, besides the skill Claude reaches for on its own:
-
-| piece | what it does |
+| piece | what it is for |
 |---|---|
-| `/jevmate:sift`, `/jevmate:tests`, `/jevmate:review`, `/jevmate:pr`, `/jevmate:triage` | the workflows as slash skills, for the person |
-| `/jevmate:stats` | this session's three measured rows, in the chat: went through jev · would have cost · saved |
-| `/jevmate:setup` | key, backend, health check, without the key ever entering the chat |
-| `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks: neither costs the main context anything |
-| hooks | a guard on Bash that asks and never allows, learns what you let through, takes project rules and knows what you last asked for; long command output trimmed to what carries information (the full output on disk); a red-suite triage the moment a test command fails, quick causes first; an injection screen on WebFetch and on curled content; installed skills and plugins inspected for instructions aimed at an agent; opt-in: a routing hint per prompt and an honesty check before a reply claims checks passed |
-| question packs | `jev q install core`: ten questions with their measured or starting thresholds, ready for `--q` |
-| MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session` as typed tool calls, one long-lived process |
-| saved questions | `jev tune … --save refund`, then `jev rank --q refund`: the measured threshold and band travel with the question |
+| `/jevmate:sift`, `tests`, `review`, `pr`, `triage` | the same workflows as slash commands |
+| `/jevmate:stats` | what went through Jev this session, what reading it would have cost, what that saved |
+| `/jevmate:setup` | key, backend and a health check, without the key ever entering the chat |
+| `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks, so the main context pays for neither |
+| hooks | below |
+| MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`, for when a typed call beats a shell command |
+
+The hooks run without being asked. Before a Bash command: a guard that asks when the command looks
+destructive, takes project rules from `.jev/guard.json`, remembers what you let through in the
+session and knows what you last asked for. After a Bash command: long output trimmed to the parts
+that carry information (the full output stays on disk), a red test run grouped by cause with the
+quick ones named first, and content fetched with curl or gh screened for text aimed at an agent.
+After WebFetch: the same screen. At session start: skills and plugins that are new or changed are
+read for instructions aimed at an agent. Two more are off by default: a hint when a prompt reads as
+routine work, and a check before a reply claims tests passed when none ran. Everything fails open
+and logs one line per decision (`jev hooks status`, `jev hooks tune`).
 
 The desktop app does not render status lines, so there the numbers live in `/jevmate:stats` and in
-`jev watch` (Terminal panel); the terminal CLI also gets `jev statusline install`. `docs/PLUGIN.md`
-has every detail, `SECURITY.md` what leaves the machine (the state and the questions, nothing else).
+`jev watch` in the Terminal panel. The terminal CLI also gets `jev statusline install`.
 
 ## Backends
 
-TypeSafe's hosted API, OpenRouter, or any server that answers the same `/v1/systemone` endpoint:
-`jev config set backend ollaya` (open decision models on your machine, no key), `jev config set backend von`,
-or `jev config set backend http://host:port`. Thresholds are per model: `jev tune` again after switching.
+TypeSafe's hosted API, OpenRouter, or any server that answers the same `/v1/systemone` endpoint.
+`jev config set backend ollaya` or `von` points at the open models running on your machine, with no
+key; `jev config set backend http://host:port` points anywhere else. Thresholds are per model, so run
+`jev tune` again after switching.
 
-## From Python
+## Numbers
 
-```python
-import sys; sys.path.insert(0, "~/.local/share/jev")   # or pip install .
-from jev import Client, decide_many, noul
-
-ds = decide_many(texts, "Is `candidate` a refund request?", threshold=0.42, band=(0.32, 0.52))
-review = [t for t, d in zip(texts, ds) if d.unsure]      # three outcomes; `if d:` raises on purpose
-r = Client(label="triage").ask({"email": body}, {"receipt": noul("Is `email` a purchase receipt?")})
-```
+Everything in the defaults was measured; `docs/MEASUREMENTS.md` has the tables and dates. The short
+version: one question went from 63.8% to 76.2% accuracy by moving the threshold alone; items addressed
+by position in a long list were wrong 27% of the time and items embedded in their own question 0%;
+identical requests jitter by about ±0.02; the confident answers of a 76% question were all right and
+the errors all sat in the band. A 1,300-line `npm install` came out of the trim hook as 47 lines with
+the warning and the summary intact.
 
 ## Layout
 
 ```
-jev/            the package: settings, questions, transport (keep-alive), cache, ledger, client, grading, decide, textio,
-                analysis (sift, tests, diff, failures, cluster), metrics (the session view), library (saved questions), mcp, hooks
-jev/cli/        one module per command family, imported only when its command runs
-jev/guide/      the playbook (`jev guide`) and recipes (`jev examples`), as Markdown
-bin/jev         the launcher (on PATH while the plugin is enabled)
-skills/         the skill Claude invokes, and the /jevmate:… ones the person invokes
-agents/         jevmate:band-reader
+jev/        the package: client, cache, ledger, grading, decide, analysis, metrics, library, hooks, mcp
+jev/cli/    one module per command family, loaded only when its command runs
+jev/guide/  the playbook (`jev guide`) and the recipes (`jev examples`)
+skills/     the skill Claude invokes, and the /jevmate:… ones you invoke
+agents/     band-reader and reviewer
 hooks/ .mcp.json .claude-plugin/   the plugin wiring; the repo is its own marketplace
-evals/          six cases for `claude plugin eval`
-tests/          python3 -m unittest discover -s tests
-docs/           MEASUREMENTS.md, PLUGIN.md
+evals/      six cases for `claude plugin eval`
+tests/      python3 -m unittest discover -s tests
 ```
 
-Everything the API sees is the state and the questions you pass; the ledger stores metadata
-only. `--dry-run` prints the exact request without a key. Nothing fetches code from the network.
-
-MIT.
+What leaves the machine is the state and the questions you pass, to the backend you chose; the
+ledger keeps metadata only. `SECURITY.md` has the details. MIT.
