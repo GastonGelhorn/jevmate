@@ -1,0 +1,468 @@
+// Tests for the mod in hooks/jevmate.tsx: `claude plugin test .` from the repo root.
+// The jev process is stood in for: every `$.process.run` gets a canned answer, so nothing leaves the machine.
+
+import { describe, expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+const JEV = {
+  requests: 12, decisions: 1234, tokens: 900000, cached: 2, reads: 700000, overhead: 200000, trimmed: 22000, trim_runs: 1, kept_out: 722000,
+  paid: 0.0381, would: 18.4, saved: 18.36, saved_total: 18.36, asked: 2, once: 9.22, reread: 9.18, pricing: 'per-model', share: 0.459,
+  labels: { sift: 400000, tests: 300000 }, hook_labels: { guard: 150000, screen: 50000 },
+  safety: { asked: 2, pages_flagged: 1, files_flagged: 0, triaged: 0, claims: 0, checks: 340 },
+  routing: { subagents: 0, subagent_saved: 0, subagent_spent: 0, effort_turns: 0, effort_cache: null },
+}
+const SUMMARY = { session: 'abcdef12', cwd: '/work/shop', model: { usd: 40.0, turns: 120, ctx: 290000, ctx_size: 1000000 }, jev: JEV, plan: null }
+const SMALL = {
+  ...SUMMARY,
+  jev: { ...JEV, kept_out: 565, reads: 565, trimmed: 0, would: 0.02, saved: 0.02, saved_total: 0.02, share: 0, labels: { 'mcp:decide': 565 },
+         safety: { asked: 28, pages_flagged: 12, files_flagged: 0, triaged: 0, claims: 0, checks: 461 } },
+}
+
+const WINDOWS = {
+  five_hour: { label: '5-hour window', used: 23.5, resets_at: '2026-10-02T14:00:00Z', as_of: '11:30', rate: 0.5, kept_free: 9.2 },
+  seven_day: { label: 'week', used: 12, resets_at: '2026-10-05T09:00:00Z', as_of: '11:30', rate: 0.05, kept_free: 0.92 },
+}
+const SUBSCRIBED = { ...SUMMARY, plan: { billing: 'subscription', windows: WINDOWS } }
+const MEASURING = {
+  ...SUMMARY,
+  plan: { billing: 'subscription', windows: { five_hour: { ...WINDOWS.five_hour, rate: null, kept_free: null }, seven_day: { ...WINDOWS.seven_day, rate: null, kept_free: null } } },
+}
+const PLAN_USAGE = {
+  startedAt: 0,
+  context: { window: 1000000, tokens: 290000, percent: 29 },
+  rateLimits: [
+    { kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-10-02T14:00:00Z' },
+    { kind: 'seven_day', percentUsed: 12, resetsAt: '2026-10-05T09:00:00Z' },
+  ],
+  cost: { usd: 40.0 },
+}
+
+const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+
+type World = {
+  judge?: object
+  route?: object
+  delegate?: object
+  summary?: object
+  usage?: object
+  calls: string[][]
+  stdins: string[]
+  store: Map<string, unknown>
+}
+
+const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], stdins: [], store: new Map(Object.entries(entries)) })
+
+// Everything beneath the plugin: the engine's answers to what the mod calls, and the events it passes on.
+function world(on: On, w: World) {
+  mock.clock(on, { now: Date.UTC(2026, 9, 2, 9, 30) })
+  mock.env(on, { HOME: '/home/someone', PATH: '/usr/bin:/bin' })
+  on('store.get', (_$, e) => ({ value: w.store.get(e.key) }))
+  on('store.set', (_$, e) => {
+    w.store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('store.delete', (_$, e) => {
+    w.store.delete(e.key)
+    return { value: undefined }
+  })
+  on('fs.exists', () => ({ value: true }))
+  on('env.set', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 'abcdef12-0000-0000' }))
+  on('session.version', () => ({ value: { version: '2.1.287' } }))
+  on('session.usage', () => ({ value: w.usage ?? { startedAt: 0, context: { window: 1000000, tokens: 290000, percent: 29 }, rateLimits: [], cost: { usd: 40.0 } } }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('process.run', (_$, e) => {
+    w.calls.push([...e.argv])
+    w.stdins.push(String(e.init?.stdin ?? ''))
+    if (e.argv.includes('guard')) return { value: ok(JSON.stringify(w.judge ?? { decision: '-', why: 'safe' })) }
+    if (e.argv.includes('route')) return { value: ok(JSON.stringify(w.route ?? { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 })) }
+    if (e.argv.includes('delegate')) return { value: ok(JSON.stringify(w.delegate ?? { reading: 0.2 })) }
+    if (e.argv.includes('record')) return { value: ok('') }
+    return { value: ok(JSON.stringify(w.summary ?? SUMMARY)) }
+  })
+  // What other mods would draw in the band: it has to stay under ours.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>another mod's band</Text>
+  })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '3 passed', stderr: '', interrupted: false } }))
+}
+
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 200, scroll: { offset: 0, bodyRows: 1 }, view: {} }
+const PANE_PROPS = { title: 'jev', isFocused: true, bodyColumns: 100, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {} }
+
+async function bandText($: any, surface: 'terminal' | 'desktop' = 'terminal', columns = 200) {
+  const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns: columns } })
+  await band.redraw()
+  return { band, text: (await band.find({ text: /◆ jev/ }))?.text ?? '' }
+}
+
+describe('the band above the prompt', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`leads with the saving when there is one, on the ${surface}, above what other mods draw`, async ($, on) => {
+      world(on, fresh())
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      const { band, text } = await bandText($, surface)
+      expect(text).toContain('~$18.36 saved')
+      expect(text).toContain('46% of the session')
+      expect(text).toContain('722k tokens kept out')
+      expect(text).toContain('guard asked 2×')
+      expect(await band.find({ text: /another mod's band/ })).toBeDefined()
+    })
+
+    test(`hide folds it to a chip on the ${surface}, and show brings it back`, async ($, on) => {
+      const w = fresh()
+      world(on, w)
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      const { band } = await bandText($, surface)
+      await band.press({ key: 'hide' })
+      expect(await band.find({ text: /tokens kept out/ })).toBeUndefined()
+      expect((await band.find({ text: /saved/ }))?.text ?? '').toContain('~$18.36 saved')
+      expect(w.store.get('band_collapsed')).toBe(true)
+      await band.press({ key: 'show' })
+      expect(await band.find({ text: /722k tokens kept out/ })).toBeDefined()
+      expect(w.store.get('band_collapsed')).toBe(false)
+    })
+  }
+
+  test('a saving under 50 cents is not shown as money: what jev caught comes first', async ($, on) => {
+    world(on, { ...fresh(), summary: SMALL })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('guard asked 28×')
+    expect(text).toContain('12 pages flagged')
+    expect(text).toContain('565 tokens kept out')
+    expect(text).not.toContain('$')
+  })
+
+  test('fits a narrow terminal by dropping the least useful numbers first', async ($, on) => {
+    world(on, fresh())
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($, 'terminal', 80)
+    expect(text).toContain('~$18.36 saved')
+    expect(text).toContain('guard asked 2×')
+    expect(text).not.toContain('ctx')
+  })
+
+  test('a line an earlier build hid comes back open', async ($, on) => {
+    const w = fresh({ band_hidden: true })
+    world(on, w)
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('tokens kept out')
+    expect(w.store.has('band_hidden')).toBe(false)
+  })
+
+  test('/jevmate hide and /jevmate show fold and unfold it', async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: 'hide' })
+    expect(w.store.get('band_collapsed')).toBe(true)
+    await $.command.run({ command: 'jevmate', args: 'show' })
+    expect(w.store.get('band_collapsed')).toBe(false)
+  })
+
+  test('is off when band_mode is off', { options: { band_mode: 'off' } }, async ($, on) => {
+    world(on, fresh())
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect(await band.find({ text: /◆ jev/ })).toBeUndefined()
+    expect(await band.find({ text: /another mod's band/ })).toBeDefined()
+  })
+})
+
+describe('the pane', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`/jevmate opens it with the session table on the ${surface}`, async ($, on) => {
+      const w = fresh()
+      world(on, w)
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      await $.command.run({ command: 'jevmate', args: '' })
+      const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+      await pane.redraw()
+      expect((await pane.find({ text: /^\s*reading/ }))?.text ?? '').toContain('700k tokens judged by jev instead of read')
+      expect((await pane.find({ text: /^\s*reading/ }))?.text ?? '').toContain('re-read until the next compaction')
+      expect((await pane.find({ text: /^\s*trim/ }))?.text ?? '').toContain('22k tokens of command output kept out in 1 run')
+      expect((await pane.find({ text: /^\s*subagents/ }))?.text ?? '').toContain('no subagents this session')
+      expect((await pane.find({ text: /^saved/ }))?.text ?? '').toContain("46% of the session's $40.00")
+      expect((await pane.find({ text: /^context/ }))?.text ?? '').toContain('in use')
+      expect(await pane.find({ text: /sift 400k/ })).toBeDefined()
+      expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
+      expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain('nothing from the Claude plan')
+      const drawn = JSON.stringify(await pane.drawn())
+      if (surface === 'terminal') expect(drawn).toContain('█')
+      else expect(drawn).not.toContain('█')
+      await pane.press({ key: 'toggle' })
+      expect(w.store.get('band_collapsed')).toBe(true)
+    })
+  }
+
+  test('every lever says whether it is on, and what the subagents could have saved', async ($, on) => {
+    const summary = { ...SMALL, model: { ...SUMMARY.model, carry: 0.19, last_model: 'claude-fable-5-1' },
+                      subagents: { count: 2, cost: 3.1, models: { 'claude-fable-5-1': 2 }, could_save: 1.25, read_only: 2 } }
+    world(on, { ...fresh(), summary })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^\s*subagents/ }))?.text ?? '').toContain('2 subagents ran (2 on fable-5-1) · ~$1.25 less on Sonnet')
+    expect((await pane.find({ text: /^\s*low effort/ }))?.text ?? '').toContain('off')
+    expect((await pane.find({ text: /^\s*trim/ }))?.text ?? '').toContain('no command output over ~4k tokens yet')
+    expect((await pane.find({ text: /^context/ }))?.text ?? '').toContain('each turn re-reads it: ~$0.19 on fable-5-1')
+  })
+
+  test('says where jev pays off when the session saved little', async ($, on) => {
+    world(on, { ...fresh(), summary: SMALL })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect(await pane.find({ text: /pays off on reading-heavy work/ })).toBeDefined()
+    expect((await pane.find({ text: /^safety/ }))?.text ?? '').toContain('12 pages flagged')
+  })
+})
+
+describe('on a subscription', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`the band shows the saving as a share of the 5-hour window and of the week on the ${surface}`, async ($, on) => {
+      const w: World = { ...fresh(), usage: PLAN_USAGE, summary: SUBSCRIBED }
+      world(on, w)
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      const { text } = await bandText($, surface)
+      expect(text).toContain('saved 9.2% of 5h · 0.9% of the week')
+      expect(text).not.toContain('$18.36')
+      const call = w.calls.find(argv => argv.includes('--plan')) ?? []
+      expect(call).toContain('five_hour=23.5@2026-10-02T14:00:00Z')
+      expect(call).toContain('seven_day=12@2026-10-05T09:00:00Z')
+      expect(call[call.indexOf('--spent') + 1]).toBe('40')
+    })
+
+    test(`the pane draws both windows with what jev kept free on the ${surface}`, async ($, on) => {
+      world(on, { ...fresh(), usage: PLAN_USAGE, summary: SUBSCRIBED })
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      await $.command.run({ command: 'jevmate', args: '' })
+      const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+      await pane.redraw()
+      const five = (await pane.find({ text: /5-hour window/ }))?.text ?? ''
+      expect(five).toContain('24% used')
+      expect(five).toContain('jev kept 9.2% free')
+      expect((await pane.find({ text: /^week/ }))?.text ?? '').toContain('jev kept 0.9% free')
+      expect((await pane.find({ text: /API equivalent/ }))?.text ?? '').toContain('not billed per token')
+    })
+  }
+
+  test('a 5-hour window Claude Code has not read yet says so instead of a blank', async ($, on) => {
+    const summary = { ...SUBSCRIBED, plan: { billing: 'subscription', windows: { seven_day: WINDOWS.seven_day }, missing: ['five_hour'] } }
+    world(on, { ...fresh(), usage: PLAN_USAGE, summary })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^5-hour window/ }))?.text ?? '').toContain('no reading yet')
+    expect((await pane.find({ text: /^week/ }))?.text ?? '').toContain('as of 11:30')
+    const { text } = await bandText($)
+    expect(text).toContain('saved 0.9% of the week')
+  })
+
+  test('while the rate is still being learnt the band shows the API equivalent', async ($, on) => {
+    world(on, { ...fresh(), usage: PLAN_USAGE, summary: MEASURING })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('~$18.36 API-equivalent saved')
+  })
+
+  test('off a subscription nothing about plans is sent', async ($, on) => {
+    const w: World = fresh()
+    world(on, w)
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    await bandText($)
+    expect(w.calls.some(argv => argv.includes('--plan'))).toBe(false)
+  })
+})
+
+describe('reading subagents on a cheaper model', () => {
+  const SPAWN = { prompt: 'Find every place the outbox is drained and list the files and functions involved.', description: 'find the drains', subagentType: 'general-purpose' }
+
+  test('a reading task runs on Sonnet and its saving is recorded from its own usage', { options: { subagent_model: 'sonnet' } }, async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.93 } }
+    world(on, w)
+    let asked = ''
+    on('agent.spawn', (_$, e) => {
+      asked = String(e.model ?? '')
+      return { model: 'claude-sonnet-5-5', agentId: 'agent-1' }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn(SPAWN)
+    expect(asked).toBe('sonnet')
+    await $.turn.complete({
+      answer: 'The outbox is drained in Engine::drain.', durationMs: 900, isAborted: false, turnId: 's1', reason: 'answer', agentId: 'agent-1',
+      usage: { model: 'claude-sonnet-5-5', input_tokens: 2000, output_tokens: 800, cache_read_input_tokens: 90000, cache_creation_input_tokens: 15000 },
+    })
+    const sent = w.stdins.find(x => x.includes('"hook":"subagent"')) ?? ''
+    expect(sent).toContain('"model":"claude-sonnet-5-5"')
+    expect(sent).toContain('"cache_read_input_tokens":90000')
+  })
+
+  test('a task jev does not read as reading, or a model the caller chose, is left alone', { options: { subagent_model: 'sonnet' } }, async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.4 } }
+    world(on, w)
+    const models: string[] = []
+    on('agent.spawn', (_$, e) => {
+      models.push(String(e.model ?? 'inherit'))
+      return { model: 'claude-fable-5-1', agentId: `a${models.length}` }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn({ ...SPAWN, prompt: 'Design the retry policy for the outbox and implement it.' })
+    await $.agent.spawn({ ...SPAWN, model: 'opus' })
+    expect(models).toEqual(['inherit', 'opus'])
+    expect(w.calls.filter(argv => argv.includes('delegate')).length).toBe(1)
+  })
+
+  test('off by default', async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.99 } }
+    world(on, w)
+    let asked = 'unset'
+    on('agent.spawn', (_$, e) => {
+      asked = String(e.model ?? 'inherit')
+      return { model: 'claude-fable-5-1', agentId: 'a1' }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn(SPAWN)
+    expect(asked).toBe('inherit')
+    expect(w.calls.some(argv => argv.includes('delegate'))).toBe(false)
+  })
+})
+
+describe('the evidence line', () => {
+  test('appears under a claim no command backs, not under one a test run backs', async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+    await $.turn.start({ text: 'fix the parser', turnId: 't1' })
+    const unbacked = await $.turn.complete({ answer: 'Fixed the parser. All tests pass now and the build is green.', durationMs: 900, isAborted: false, turnId: 't1', reason: 'answer' })
+    expect(unbacked.text).toContain('no test, build or lint command ran this turn')
+    expect(w.stdins.some(x => x.includes('"hook":"evidence"'))).toBe(true)
+
+    await $.turn.start({ text: 'fix the parser', turnId: 't2' })
+    await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+    const backed = await $.turn.complete({ answer: 'Fixed the parser. All tests pass now and the build is green.', durationMs: 900, isAborted: false, turnId: 't2', reason: 'answer' })
+    expect(backed.text).not.toContain('jev:')
+  })
+})
+
+describe('the guard where no prompt can appear', () => {
+  const RISKY = { decision: 'ask', why: null, p: 0.96, outside: 0.91, requested: 0.44, ask_at: 0.6, deny_at: 0.9, reason: 'jev guard: p(destructive)=0.96 — git push --force origin main' }
+
+  test('asks in plain words, and refuses when the person refuses', async ($, on) => {
+    world(on, { ...fresh(), judge: RISKY })
+    let asked = ''
+    on('tool.check', () => ({ decision: 'allow' as const }))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
+      asked = `${e.questions[0].header}: ${e.questions[0].question}`
+      return { result: { questions: e.questions, answers: { [e.questions[0].question]: 'Refuse' } } }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    const verdict = await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })
+    expect(verdict.decision).toBe('deny')
+    expect(asked).toContain('jev guard')
+    expect(asked).toContain('looks destructive (p 0.96)')
+    expect(asked).toContain('reaches outside the project (p 0.91)')
+    expect(asked).toContain('does not look like part of what you asked (p 0.44)')
+  })
+
+  test('lets it through when the person says run it, and never answers allow on its own', async ($, on) => {
+    world(on, { ...fresh(), judge: RISKY })
+    on('tool.check', (_$, e) => ({ decision: String((e.input as { command: string }).command).startsWith('rm') ? ('ask' as const) : ('allow' as const) }))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => ({ result: { questions: e.questions, answers: { [e.questions[0].question]: 'Run it' } } }))
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })).decision).toBe('allow')
+    // what the rules decided as ask stays ask: the mod only ever narrows
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
+  })
+
+  test('a dismissed question refuses the command', async ($, on) => {
+    world(on, { ...fresh(), judge: RISKY })
+    on('tool.check', () => ({ decision: 'allow' as const }))
+    on('tool.call', { tool: 'AskUserQuestion' }, () => ({ deny: 'dismissed' }))
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })).decision).toBe('deny')
+  })
+
+  test('a read-only command costs nothing', async ($, on) => {
+    const w: World = { ...fresh(), judge: RISKY }
+    world(on, w)
+    on('tool.check', () => ({ decision: 'allow' as const }))
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git status' } })).decision).toBe('allow')
+    expect(w.calls.some(argv => argv.includes('guard'))).toBe(false)
+  })
+})
+
+describe('low effort on routine turns', () => {
+  const SMALL_CONTEXT = { startedAt: 0, context: { window: 1000000, tokens: 60000, percent: 6 }, rateLimits: [], cost: { usd: 3.0 } }
+  const ROUTINE = { routine: true, name: 'a routine change', conf: 0.95, level: 1 }
+  const step = (turnId: string, cacheRead: number, cacheWrite: number) =>
+    ({ turnId, index: 0, answer: 'done', toolUses: [], stopReason: 'end_turn', usage: { model: 'claude-fable-5-1', input_tokens: 50, output_tokens: 200, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite } }) as never
+
+  async function turn($: any, turnId: string, prompt: string) {
+    await $.prompt.submit({ text: prompt })
+    await $.turn.start({ text: prompt, turnId })
+    for await (const _chunk of $.turn.step({ turnId, index: 0, model: 'claude-fable-5-1', messageCount: 3 })) {
+      // drain
+    }
+    await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+  }
+
+  test('a routine prompt runs at low effort on a small context', { options: { route_mode: 'effort' } }, async ($, on) => {
+    world(on, { ...fresh(), usage: SMALL_CONTEXT, route: ROUTINE })
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      return step(e.turnId, 60000, 0)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    expect(efforts).toEqual(['low'])
+  })
+
+  test('is stopped for good when lowering effort re-wrote the cache', { options: { route_mode: 'effort' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: SMALL_CONTEXT, route: { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 } }
+    world(on, w)
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      // the first turn reads 60k from the cache; the one at low effort has to write it all again
+      return efforts.length === 1 ? step(e.turnId, 60000, 0) : step(e.turnId, 0, 60000)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r0', 'design the retry policy for the outbox and explain the trade-offs between the options')
+    w.route = ROUTINE
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    await turn($, 'r2', 'rename another helper in utils.py and fix its call sites, nothing else')
+    expect(efforts).toEqual(['default', 'low', 'default'])
+    expect((w.store.get('effort_cache') as { verdict: string }).verdict).toBe('rewrites')
+    expect(w.stdins.some(x => x.includes('"hook":"effort-cache"') && x.includes('rewrites'))).toBe(true)
+  })
+
+  test('waits for a small context before the first check', { options: { route_mode: 'effort' } }, async ($, on) => {
+    world(on, { ...fresh(), route: ROUTINE }) // the default usage reports a 290k context
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      return step(e.turnId, 280000, 0)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    expect(efforts).toEqual(['default'])
+  })
+})

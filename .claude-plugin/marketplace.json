@@ -1,0 +1,28 @@
+{
+  "name": "gastongelhorn",
+  "owner": {
+    "name": "Gaston Gelhorn",
+    "email": "gastongelhorn@gmail.com"
+  },
+  "metadata": {
+    "description": "jevmate: a fast decision layer for coding agents",
+    "version": "1.5.4"
+  },
+  "plugins": [
+    {
+      "name": "jevmate",
+      "source": "./",
+      "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures and reviews diffs, so the expensive model reads only what matters. Measured thresholds.",
+      "category": "productivity",
+      "tags": [
+        "decisions",
+        "triage",
+        "classification",
+        "tests",
+        "review",
+        "hooks",
+        "mcp"
+      ]
+    }
+  ]
+}

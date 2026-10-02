@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""jev launcher: puts the package directory on sys.path and hands over to the CLI.
+
+The package imports are cached as .pyc files next to the package, so this starts faster than a
+single-file script that is recompiled on every run.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+# The package beside this launcher first (a checkout, or the plugin's own copy, so its hooks never run an
+# older install), then the one install.sh puts under ~/.local/share/jev.
+for candidate in (os.path.dirname(HERE), os.path.join(os.path.expanduser("~"), ".local", "share", "jev")):
+    if os.path.isfile(os.path.join(candidate, "jev", "__init__.py")):
+        sys.path.insert(0, candidate)
+        break
+
+from jev.cli import main  # noqa: E402
+
+sys.exit(main())

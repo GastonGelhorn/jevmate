@@ -1,0 +1,12 @@
+diff --git a/src/http.py b/src/http.py
+--- a/src/http.py
++++ b/src/http.py
+@@ -6,6 +6,8 @@ class Backoff:
+ 
+ def retry_after(headers, attempt):
+     ra = headers.get('retry-after')
+-    if ra and ra.isdigit():
+-        return float(ra)
++    if ra and ra.replace('.', '', 1).isdigit():
++        return min(float(ra), 30.0)
+     return Backoff().delay(attempt)

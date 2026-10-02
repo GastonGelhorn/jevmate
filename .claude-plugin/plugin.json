@@ -1,0 +1,130 @@
+{
+  "name": "jevmate",
+  "displayName": "jevmate",
+  "version": "1.5.4",
+  "description": "A fast decision layer for coding agents. Jev ranks files, picks the tests a change can break, sorts failures and reviews diffs by risk, so Claude reads only what matters and judges only what Jev is unsure of. Also: long output trimmed, safety signals on Bash and fetched content, and the session's numbers above the prompt. Thresholds measured, not guessed.",
+  "author": {
+    "name": "Gaston Gelhorn",
+    "email": "gastongelhorn@gmail.com"
+  },
+  "homepage": "https://github.com/GastonGelhorn/jevmate",
+  "repository": "https://github.com/GastonGelhorn/jevmate",
+  "license": "MIT",
+  "keywords": [
+    "decisions",
+    "calibration",
+    "triage",
+    "classification",
+    "ranking",
+    "tests",
+    "code-review",
+    "hooks",
+    "mcp",
+    "typesafe",
+    "openrouter"
+  ],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "A TypeSafe key (console.typesafe.ai) or an OpenRouter key (sk-or-…). Stored with mode 0600 on the next session start; leave empty if you use `jev auth set` or TYPESAFE_API_KEY.",
+      "sensitive": true
+    },
+    "backend": {
+      "type": "string",
+      "title": "Backend",
+      "description": "typesafe or openrouter. Empty: detected from the key (sk-or- means OpenRouter), else TypeSafe.",
+      "default": ""
+    },
+    "guard_mode": {
+      "type": "string",
+      "title": "Bash guard",
+      "description": "ask: prompt before a command that looks destructive (p >= 0.60); where no permission prompt can appear (bypassPermissions) the mod asks you itself from p >= 0.90, and never answers allow. strict: the mod asks from p >= 0.60 there too. deny: deny at p >= 0.90 in every permission mode, ask nothing extra. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
+      "default": "ask",
+      "options": [
+        "ask",
+        "strict",
+        "deny",
+        "off"
+      ]
+    },
+    "band_mode": {
+      "type": "string",
+      "title": "Numbers above the prompt",
+      "description": "on: one line above the prompt with what went through jev this session, what it kept out and what that saved (on a subscription, as a share of the 5-hour window and of the week). details (or /jevmate) opens the full table in a pane; hide folds the line to a chip, show (or /jevmate show) opens it again. off: no line. Needs Claude Code 2.1.287 or later.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "evidence_line": {
+      "type": "string",
+      "title": "Evidence line under a reply",
+      "description": "on: when a reply says a test, build or check passed and no test, build or lint command ran this turn, one line under the reply says so. No model call, nothing blocked. off: nothing.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "screen_mode": {
+      "type": "string",
+      "title": "WebFetch screen",
+      "description": "on: add a line of context when fetched content (WebFetch, WebSearch, curl, gh) reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
+      "default": "on"
+    },
+    "triage_mode": {
+      "type": "string",
+      "title": "Red-suite triage",
+      "description": "on: when a test command fails, group the failures by cause and say which the current diff caused, in one line of context. off: nothing.",
+      "default": "on"
+    },
+    "route_mode": {
+      "type": "string",
+      "title": "Routing (opt-in)",
+      "description": "Rates each prompt (lookup / routine / judgment / hard). hint: for a routine one at confidence >= route_conf, a line of context suggests a cheaper subagent or lower effort. effort: the turn runs at effort low instead, but only once jev has checked, on a context under 100k tokens, that lowering effort keeps the prompt cache on this Claude Code build; if it re-writes the cache, jev stops. off (default): nothing. The main turn's model is never switched: a model's cache does not carry to another.",
+      "default": "off",
+      "options": [
+        "off",
+        "hint",
+        "effort"
+      ]
+    },
+    "route_conf": {
+      "type": "string",
+      "title": "Routing confidence bar",
+      "description": "A prompt counts as routine only at or above this confidence. 0.80 measured; lower means more prompts routed, including some that were not routine.",
+      "default": "0.80"
+    },
+    "subagent_model": {
+      "type": "string",
+      "title": "Reading subagents on a cheaper model (opt-in)",
+      "description": "sonnet or haiku: when Claude starts a subagent without choosing its model, and jev reads its task as reading, searching or summarizing (p >= 0.85), the subagent runs on this model instead of the session's. Its saving is priced from its own usage and shows in the pane. A subagent has a context of its own, so the main conversation's cache is untouched. off (default): nothing.",
+      "default": "off",
+      "options": [
+        "off",
+        "sonnet",
+        "haiku"
+      ]
+    },
+    "honesty_mode": {
+      "type": "string",
+      "title": "Honesty check (opt-in)",
+      "description": "on: when a reply claims tests, a build or a check passed but no test, build or lint command ran this turn, ask Claude to run it before stopping (the transcript is checked first; the model is asked only when the wording is ambiguous). off (default): nothing.",
+      "default": "off"
+    },
+    "trim_mode": {
+      "type": "string",
+      "title": "Trim long command output",
+      "description": "on: command output above ~4,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
+      "default": "on"
+    },
+    "inspect_mode": {
+      "type": "string",
+      "title": "Inspect installed instructions",
+      "description": "on: at session start, skills, plugins, agents and hook files that are new or changed since the last look are read for instructions aimed at an agent and for planted markers; a line of context appears only when something flags. off: nothing. `jev inspect` runs it by hand.",
+      "default": "on"
+    }
+  }
+}
