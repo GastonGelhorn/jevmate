@@ -10,6 +10,12 @@ judgment calls that repeat, and a frontier model is an expensive way to make the
 in about 250 ms for $0.04 per million tokens (or for nothing, on a local server), and this repo wraps
 it so the agent reaches for it on its own.
 
+![The line above the prompt in Claude Code: saved 31.5% of the 5-hour window and 5.7% of the week, guard asked 17 times](docs/img/band.jpg)
+
+The line above the prompt, after a session in which jev sifted 836 files three times: 2.3 million
+tokens judged for ten cents, about $23 of reading at API prices, and on a subscription a third of a
+5-hour window kept free.
+
 The threshold is measured before a question decides anything (`jev tune`), and the measurement
 travels with the question (`jev q`). The session tells you what Jev kept out of the context and what
 reading it would have cost (`jev session`, `/jevmate:stats`). The hooks never widen what you allowed:
