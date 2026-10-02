@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.3 — first public release
+## 1.5.4 — first public release
 
 The `jev` command (ask, yes, pick, rate; rank, batch, sift, tune, label, scaffold; tests, diff,
 failures, cluster, stream; q and the core question pack; usage, cost, cache, session, watch,
@@ -26,5 +26,9 @@ prompt leads with value in its own units: a saving worth showing, or what the ho
 Levers on the big slices, opt-in and measured as they run: reading subagents on a cheaper model, and
 low effort on routine turns once a check showed it keeps the prompt cache. Trim starts at 4,000
 tokens (measured), and file reads behind `cd dir &&` are recognized and left alone.
+
+The pane breaks the saving down by lever (reading, trim, subagents, low effort), says which are on,
+and prices what the session's read-only subagents would have cost on Sonnet. Every plan window is
+kept with the time of its reading, and the context's per-turn cost is shown.
 
 Backends: TypeSafe, OpenRouter, ollaya, von or any URL.
