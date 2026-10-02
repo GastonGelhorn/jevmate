@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jevmate"
 version = "1.5.4"
-description = "Jev for coding agents: a CLI, a Claude Code plugin and an MCP server, with measured thresholds"
+description = "A fast decision layer for coding agents: a CLI, an MCP server and a Claude Code plugin around Jev, with measured thresholds"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -27,4 +27,4 @@ jev = "jev.cli:main"
 include = ["jev", "jev.*"]
 
 [tool.setuptools.package-data]
-jev = ["guide/*.md"]
+jev = ["guide/*.md", "packs/*.json"]
