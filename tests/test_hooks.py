@@ -407,3 +407,46 @@ class GuardModHandOff(unittest.TestCase):
         read = json.loads(out)
         self.assertTrue(read["routine"])
         self.assertEqual(read["name"], "a lookup")
+
+
+class ModChannel(unittest.TestCase):
+    """What the mod writes through `jev hook record`, and its delegation question."""
+
+    def setUp(self):
+        self.home = fresh_home()
+
+    def test_a_subagent_on_a_cheaper_model_is_priced_from_its_own_usage(self):
+        usage = {"input_tokens": 0, "output_tokens": 1_000_000, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        run(["hook", "record"], stdin=json.dumps({"hook": "subagent", "session_id": "abcdef12-0000", "parent": "claude-fable-5-1",
+                                                  "model": "claude-sonnet-5-5", "kind": "general-purpose", "usage": usage}))
+        row = ledger.hook_rows()[-1]
+        self.assertEqual(row["hook"], "subagent")
+        self.assertAlmostEqual(row["spent"], 10.0, msg="a million output tokens on Sonnet 5.5")
+        self.assertAlmostEqual(row["saved_usd"], 40.0, msg="against $50 on Fable 5.1")
+        self.assertEqual(row["agent"], "session:abcdef12")
+
+    def test_only_known_rows_are_recorded(self):
+        run(["hook", "record"], stdin=json.dumps({"hook": "guard", "decision": "allow"}))
+        run(["hook", "record"], stdin=json.dumps({"hook": "evidence", "session_id": "abcdef12-0000", "nested": {"x": 1}}))
+        rows = ledger.hook_rows()
+        self.assertEqual([r["hook"] for r in rows], ["evidence"], "nobody can forge a guard row through the channel")
+        self.assertNotIn("nested", rows[0])
+
+    def test_delegate_answers_one_line(self):
+        code, out, _, t = run(["hook", "delegate"], stdin=json.dumps({"prompt": "yes: find where the outbox is drained and list the files", "subagent_type": "Explore"}))
+        self.assertEqual(json.loads(out), {"reading": 0.9})
+        code, out, _, t = run(["hook", "delegate"], stdin=json.dumps({"prompt": "short"}))
+        self.assertEqual((json.loads(out), t.calls), ({"reading": None}, []))
+
+    def test_reads_behind_prefixes_are_never_trimmed(self):
+        from jev import hooks
+        for cmd in ("cd ~/x && sed -n 1,450p big.py", "D=/a/b; cat a b", "true; true && git -C /r log -30", "set -e; grep -rn foo ."):
+            self.assertTrue(hooks.reads_files(cmd), cmd)
+        for cmd in ("cd /x && npm install", "composer update", "set -u; R=https://x; curl -s $R"):
+            self.assertFalse(hooks.reads_files(cmd), cmd)
+
+    def test_the_main_turn_model_is_never_switched(self):
+        prompt = "rename the helper in utils.py and fix the two call sites"
+        with mock.patch.dict("os.environ", {"JEV_ROUTE_MODE": "model"}):
+            code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"prompt": prompt, "session_id": "s"}))
+        self.assertIn("jev route", json.loads(out)["hookSpecificOutput"]["additionalContext"], "the old model mode reads as hint")

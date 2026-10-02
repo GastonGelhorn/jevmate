@@ -142,6 +142,37 @@ class WouldHaveCost(unittest.TestCase):
         self.assertIn("claude-haiku-4-5", tr.per, "but it is still paid for")
 
 
+class SafetyAndRouting(unittest.TestCase):
+    def setUp(self):
+        self.home = fresh_home()
+
+    def test_counts_what_jev_caught_and_adds_subagent_savings(self):
+        os.environ["JEV_AGENT"] = "session:abcdef12"
+        try:
+            ledger.log_hook("guard", {"cmd": "rm -rf x", "p": 0.9, "decision": "ask"})
+            ledger.log_hook("guard", {"cmd": "ls", "p": 0.1, "decision": "-"})
+            ledger.log_hook("screen", {"src": "https://x", "p": 0.8, "warned": True})
+            ledger.log_hook("screen", {"src": "https://y", "p": 0.1, "warned": False})
+            ledger.log_hook("inspect", {"files": 9, "sent": 2, "flagged": 1, "new_flags": 1})
+            ledger.log_hook("triage", {"cmd": "pytest", "noted": True})
+            ledger.log_hook("evidence", {})
+            ledger.log_hook("subagent", {"parent": "claude-fable-5-1", "model": "claude-sonnet-5-5", "spent": 1.0, "saved_usd": 4.0})
+            ledger.log_hook("effort", {"conf": 0.9})
+            ledger.log_hook("effort-cache", {"verdict": "keeps", "version": "2.1.287"})
+        finally:
+            os.environ.pop("JEV_AGENT", None)
+        j = metrics.session_summary(str(self.home), "abcdef12", None)["jev"]
+        self.assertEqual(j["safety"], {"asked": 1, "pages_flagged": 1, "files_flagged": 1, "triaged": 1, "claims": 1, "checks": 5})
+        self.assertEqual(j["routing"]["subagents"], 1)
+        self.assertAlmostEqual(j["saved_total"], j["saved"] + 4.0)
+        self.assertEqual((j["routing"]["effort_turns"], j["routing"]["effort_cache"]), (1, "keeps"))
+        text = metrics.render_session(metrics.session_summary(str(self.home), "abcdef12", None), color=False)
+        self.assertIn("1 fetched page(s) flagged", text)
+        self.assertIn("1 ran on a cheaper model", text)
+        self.assertIn("the prompt cache survives it", text)
+        self.assertIn("nothing from the Claude plan", text)
+
+
 class Plan(unittest.TestCase):
     def setUp(self):
         fresh_home()
