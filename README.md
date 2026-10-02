@@ -10,14 +10,10 @@ judgment calls that repeat, and a frontier model is an expensive way to make the
 in about 250 ms for $0.04 per million tokens (or for nothing, on a local server), and this repo wraps
 it so the agent reaches for it on its own.
 
-Three things I cared about that I did not find elsewhere:
-
-- the threshold is measured before a question decides anything (`jev tune`), and the measurement
-  travels with the question (`jev q`);
-- the session tells you what Jev kept out of the context and what reading it would have cost
-  (`jev session`, `/jevmate:stats`);
-- the hooks never widen what you allowed. The Bash guard asks or stays quiet, it never answers
-  "allow", and it learns from what you let through.
+The threshold is measured before a question decides anything (`jev tune`), and the measurement
+travels with the question (`jev q`). The session tells you what Jev kept out of the context and what
+reading it would have cost (`jev session`, `/jevmate:stats`). The hooks never widen what you allowed:
+the Bash guard asks or stays quiet, it never answers "allow", and it learns from what you let through.
 
 ```
 $ jev yes 'Does `text` ask for money back?' --field text=@mail.txt
