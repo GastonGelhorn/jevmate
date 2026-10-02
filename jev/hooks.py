@@ -597,7 +597,7 @@ def screen() -> int:
 def route() -> int:
     """How hard is this prompt? As a hook, a hint: the agent can delegate a routine task to a cheaper
     subagent or spend less effort on it. The mod (`judge: true` in the payload) gets the reading as
-    one JSON line and, in the `effort` and `model` modes, changes the request itself."""
+    one JSON line and, in the `effort` mode, changes the request itself."""
     mode = _opt("ROUTE_MODE", "JEV_ROUTE_MODE", "off")
     p = _payload()
     judge = bool((p or {}).get("judge"))
