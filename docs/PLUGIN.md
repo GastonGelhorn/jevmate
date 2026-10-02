@@ -168,7 +168,17 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
   the session spent meanwhile, decayed so it follows the plan. An interval in which the window
   reset, the session's figure went back, or another session was active teaches nothing. After $2 of
   observed use the saving shows as a share of the 5-hour window and of the week; until then it says
-  "measuring". The rates and the latest readings live in `plan.json` in the jev home.
+  "measuring". Every window Claude Code reports is kept, a week per model included on plans that
+  have one, each with the time of its reading. A request that leaves a window out does not blank it:
+  its last reading stands until the window resets, and a window with no reading yet says so. The rates
+  and the latest readings live in `plan.json` in the jev home.
+- **by lever**: the pane breaks the saving down into reading (what jev judged instead of the agent),
+  trim, subagents and low effort, each saying whether it is on. With subagent routing off, it prices
+  the session's read-only subagents (Explore, claude-code-guide) at Sonnet from their own transcripts,
+  so the pane shows what turning it on would have saved; nothing, when they already ran on Haiku.
+- **the context's own cost**: each turn sends the whole conversation again, so the pane shows what
+  the next turn costs to re-read it at the current model's cache-read price. It is the largest cost
+  in a long session, and the reason a /compact pays off.
 
 ## Evals
 
