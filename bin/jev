@@ -8,7 +8,9 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-for candidate in (os.path.join(os.path.expanduser("~"), ".local", "share", "jev"), os.path.dirname(HERE)):
+# The package beside this launcher first (a checkout, or the plugin's own copy, so its hooks never run an
+# older install), then the one install.sh puts under ~/.local/share/jev.
+for candidate in (os.path.dirname(HERE), os.path.join(os.path.expanduser("~"), ".local", "share", "jev")):
     if os.path.isfile(os.path.join(candidate, "jev", "__init__.py")):
         sys.path.insert(0, candidate)
         break
