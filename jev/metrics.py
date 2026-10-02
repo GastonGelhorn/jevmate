@@ -103,6 +103,7 @@ class Transcript:
         self.seen: set[str] = set()
         self.turns: list[tuple[str, str, int]] = []  # (UTC "YYYY-MM-DDTHH:MM:SS", model, context tokens), main thread, sorted
         self.compactions: list[str] = []             # UTC timestamps of compaction boundaries, sorted
+        self.compaction_meta: list[dict] = []        # what each compaction took the context from and to
         self.first = self.last = None
         self.last_ctx = 0
         self.last_model = ""
@@ -136,6 +137,9 @@ class Transcript:
                     continue
                 if o.get("subtype") == "compact_boundary" and o.get("timestamp"):
                     insort(self.compactions, o["timestamp"][:19])
+                    meta = o.get("compactMetadata") or {}
+                    self.compaction_meta.append({"ts": o["timestamp"][:19], "pre": int(meta.get("preTokens") or 0),
+                                                 "post": int(meta.get("postTokens") or 0), "trigger": meta.get("trigger")})
                 continue
             if b'"type":"assistant"' not in line and b'"type": "assistant"' not in line:
                 continue
@@ -319,28 +323,56 @@ def parse_plan(values: list[str] | None) -> dict[str, dict]:
     return out
 
 
+def is_plan_window(kind: str) -> bool:
+    return kind.startswith("five_hour") or kind.startswith("seven_day")
+
+
+def window_label(kind: str) -> str:
+    if kind == "five_hour":
+        return "5-hour window"
+    if kind == "seven_day":
+        return "week"
+    if kind.startswith("seven_day_"):
+        return f"week, {kind.removeprefix('seven_day_').replace('_', ' ').title()}"
+    return kind.replace("_", " ")
+
+
+def _expired(reading: dict, now: float) -> bool:
+    """A reading counts until its window resets (or, with no reset time, for six hours)."""
+    resets = reading.get("resets")
+    if resets:
+        try:
+            return datetime.fromisoformat(str(resets).replace("Z", "+00:00")).timestamp() <= now
+        except ValueError:
+            pass
+    return now - float(reading.get("at", now)) > 6 * 3600
+
+
 def plan_record(session_id: str, spent: float | None, readings: dict[str, dict], now: float | None = None) -> None:
-    """Learn how many points of each window one API-equivalent dollar uses, from consecutive readings of one
-    session: the points the window moved over the dollars the session spent meanwhile. An interval in which
-    the window reset, the session's figure went back, or another session was active, teaches nothing."""
+    """Keep each window's latest reading, and learn how many points of it one API-equivalent dollar takes:
+    the points it moved over the dollars the session spent between two readings of it. A window the latest
+    reading left out keeps its last value until it resets. An interval in which the window reset, the
+    session's figure went back, or another session was active, teaches nothing."""
     if not session_id or not readings:
         return
     now = time.time() if now is None else now
     data = _plan_load()
     sessions = {k: v for k, v in (data.get("sessions") or {}).items() if isinstance(v, dict) and now - float(v.get("ts", 0)) < PLAN_KEEP_DAYS * 86400}
     rates = data.get("rates") or {}
-    prev = sessions.get(session_id)
-    if prev and spent is not None and prev.get("spent") is not None:
-        dc = spent - float(prev["spent"])
-        busy = any(k != session_id and float(v.get("ts", 0)) > float(prev.get("ts", 0)) for k, v in sessions.items())
-        if dc > 0 and not busy:
-            for kind in PLAN_WINDOWS:
-                cur, old = readings.get(kind), (prev.get("readings") or {}).get(kind)
-                if not cur or not old or cur.get("resets") != old.get("resets") or cur["pct"] < old["pct"]:
-                    continue
-                acc = rates.get(kind) or {"p": 0.0, "c": 0.0, "n": 0}
-                rates[kind] = {"p": acc["p"] * PLAN_DECAY + (cur["pct"] - old["pct"]), "c": acc["c"] * PLAN_DECAY + dc, "n": acc["n"] + 1}
-    sessions[session_id] = {"ts": now, "spent": spent, "readings": readings}
+    held = {k: v for k, v in ((sessions.get(session_id) or {}).get("readings") or {}).items() if isinstance(v, dict) and not _expired(v, now)}
+    for kind, cur in readings.items():
+        old = held.get(kind)
+        if not old or spent is None or old.get("spent") is None:
+            continue
+        dc = spent - float(old["spent"])
+        busy = any(k != session_id and float(v.get("ts", 0)) > float(old.get("at", 0)) for k, v in sessions.items())
+        if dc <= 0 or busy or cur.get("resets") != old.get("resets") or cur["pct"] < float(old["pct"]):
+            continue
+        acc = rates.get(kind) or {"p": 0.0, "c": 0.0, "n": 0}
+        rates[kind] = {"p": acc["p"] * PLAN_DECAY + (cur["pct"] - float(old["pct"])), "c": acc["c"] * PLAN_DECAY + dc, "n": acc["n"] + 1}
+    for kind, cur in readings.items():
+        held[kind] = {**cur, "at": now, "spent": spent}
+    sessions[session_id] = {"ts": now, "spent": spent, "readings": held}
     try:
         settings.HOME.mkdir(parents=True, exist_ok=True)
         _plan_path().write_text(json.dumps({"rates": rates, "sessions": sessions}))
@@ -348,22 +380,69 @@ def plan_record(session_id: str, spent: float | None, readings: dict[str, dict],
         pass
 
 
-def plan_view(session_id: str | None, would: float, readings: dict[str, dict] | None = None) -> dict | None:
-    """The session on a subscription: each window's use now and the share of it the kept-out text would
-    have taken (points, or None while the rate is still being learnt). None off a subscription."""
+def plan_view(session_id: str | None, worth: float, readings: dict[str, dict] | None = None, now: float | None = None) -> dict | None:
+    """The session on a subscription: each window's use as Claude Code last read it, when, and the share of
+    it the kept-out text would have taken (points, or None while the rate is still being learnt). None off
+    a subscription."""
+    now = time.time() if now is None else now
     data = _plan_load()
-    if readings is None and session_id:
-        readings = ((data.get("sessions") or {}).get(session_id) or {}).get("readings")
-    readings = {k: v for k, v in (readings or {}).items() if k in PLAN_WINDOWS}
-    if not readings:
+    held = ((data.get("sessions") or {}).get(session_id) or {}).get("readings") or {} if session_id else {}
+    merged = {**held, **{k: {**v, "at": now} for k, v in (readings or {}).items()}}
+    merged = {k: v for k, v in merged.items() if is_plan_window(k) and isinstance(v, dict) and not _expired(v, now)}
+    if not merged:
         return None
+    order = ["five_hour", "seven_day"] + sorted(k for k in merged if k not in ("five_hour", "seven_day"))
     windows = {}
-    for kind, cur in readings.items():
+    for kind in order:
+        cur = merged.get(kind)
+        if not cur:
+            continue
         acc = (data.get("rates") or {}).get(kind) or {}
         ready = float(acc.get("c") or 0) >= PLAN_READY_USD and int(acc.get("n") or 0) >= 3
         rate = float(acc["p"]) / float(acc["c"]) if ready else None
-        windows[kind] = {"used": cur["pct"], "resets_at": cur.get("resets"), "rate": rate, "kept_free": would * rate if rate is not None else None}
-    return {"billing": "subscription", "windows": windows}
+        windows[kind] = {"label": window_label(kind), "used": cur["pct"], "resets_at": cur.get("resets"),
+                         "as_of": datetime.fromtimestamp(float(cur.get("at", now))).strftime("%H:%M"),
+                         "rate": rate, "kept_free": worth * rate if rate is not None else None}
+    return {"billing": "subscription", "windows": windows, "missing": [k for k in ("five_hour", "seven_day") if k not in windows]}
+
+
+# ---------------------------------------------------------------- subagents and the context
+
+READ_ONLY_SUBAGENTS = {"Explore", "claude-code-guide"}
+SUBAGENT_TARGET = "claude-sonnet-5-5"
+
+
+def _tier(model: str) -> int:
+    return 1 if "haiku" in model else 2 if "sonnet" in model else 3
+
+
+def subagent_view(transcript: Path | None) -> dict:
+    """The session's subagents, from their own transcripts: what they cost, on which models, and what the
+    read-only ones (Explore, claude-code-guide) would have cost less on Sonnet. An upper bound for what
+    `subagent_model` would have saved, since a general-purpose subagent is only routed when its task reads."""
+    out = {"count": 0, "cost": 0.0, "models": {}, "could_save": 0.0, "read_only": 0}
+    folder = transcript.with_suffix("") / "subagents" if transcript else None
+    if not folder or not folder.is_dir():
+        return out
+    pi, po, pcr, pcw = price_for(SUBAGENT_TARGET)
+    for f in sorted(folder.glob("*.jsonl")):
+        try:
+            meta = json.loads(f.with_suffix(".meta.json").read_text())
+        except (OSError, ValueError):
+            meta = {}
+        tr = Transcript(f)
+        tr.refresh()
+        out["count"] += 1
+        out["cost"] += tr.usd()
+        read_only = str(meta.get("agentType") or "") in READ_ONLY_SUBAGENTS
+        out["read_only"] += int(read_only)
+        for model, d in tr.per.items():
+            if model.startswith("<"):
+                continue
+            out["models"][model] = out["models"].get(model, 0) + 1
+            if read_only and _tier(model) > _tier(SUBAGENT_TARGET):
+                out["could_save"] += d["usd"] - (d["in"] * pi + d["out"] * po + d["cr"] * pcr + d["cw"] * pcw) / 1e6
+    return out
 
 
 # ---------------------------------------------------------------- the summary
@@ -387,7 +466,10 @@ def session_summary(cwd: str, session_id: str | None = None, transcript: Transcr
         total = tr.usd()
         model = {"per": {k: dict(v) for k, v in tr.per.items()}, "usd": total, "turns": sum(d["turns"] for d in tr.per.values()),
                  "first": tr.first, "last": tr.last, "ctx": tr.last_ctx, "ctx_size": context_size(tr.last_model), "last_model": tr.last_model,
-                 "cache_read": sum(d["cr"] for d in tr.per.values())}
+                 "cache_read": sum(d["cr"] for d in tr.per.values()),
+                 # every turn sends the whole conversation again: at the cache-read price, this is what the next one costs before it says a word
+                 "carry": tr.last_ctx / 1e6 * price_for(tr.last_model)[2] if tr.last_model else 0.0,
+                 "compactions": tr.compaction_meta[-3:]}
     if tr and tr.first:
         try:
             since = to_local(tr.first).replace(tzinfo=None).isoformat(timespec="seconds")
@@ -403,9 +485,10 @@ def session_summary(cwd: str, session_id: str | None = None, transcript: Transcr
         jev["share"] = jev["saved_total"] / session_usd
     if plan and sid:
         plan_record(sid, spent if spent is not None else (model["usd"] if model else None), plan)
-    view = plan_view(sid, jev["would"] + jev["routing"]["subagent_saved"], plan) if sid else None
+    view = plan_view(sid, jev["would"] + jev["routing"]["subagent_saved"]) if sid else None
+    subagents = subagent_view(tr.path if tr else None)
     return {"session": sid, "cwd": cwd, "transcript": str(tr.path) if tr else None, "since": since, "model": model, "jev": jev,
-            "spent": spent, "plan": view}
+            "spent": spent, "plan": view, "subagents": subagents}
 
 
 def _window_name(kind: str) -> str:
@@ -422,7 +505,7 @@ def worth(points: float | None, name: str) -> str:
 
 
 def plan_line(view: dict) -> str:
-    return " · ".join(worth(w["kept_free"], _window_name(kind)) for kind in PLAN_WINDOWS if (w := view["windows"].get(kind)))
+    return " · ".join(worth(w["kept_free"], w.get("label") or _window_name(kind)) for kind, w in view["windows"].items())
 
 
 def render_session(s: dict, color: bool = True, jev_only: bool = False, title: str = "jev session") -> str:
@@ -440,7 +523,8 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
                 continue
             lines.append(f"  {model.replace('claude-', ''):<14}{d['turns']:>5} turns   in {fmt_k(d['in']):>6} · out {fmt_k(d['out']):>6} · cache read {fmt_k(d['cr']):>7}"
                          f" · cache write {fmt_k(d['cw']):>6}   {y}~${d['usd']:,.2f}{r0}")
-        lines.append(f"  {'session':<14}{m['turns']:>5} turns   {y}~${m['usd']:,.2f}{r0} · context now {fmt_k(m['ctx'])} tokens ({100 * m['ctx'] / m['ctx_size']:.0f}% of {fmt_k(m['ctx_size'])})")
+        lines.append(f"  {'session':<14}{m['turns']:>5} turns   {y}~${m['usd']:,.2f}{r0} · context now {fmt_k(m['ctx'])} tokens ({100 * m['ctx'] / m['ctx_size']:.0f}% of {fmt_k(m['ctx_size'])})"
+                     + (f" · {y}each turn re-reads it: ~${m['carry']:.2f}{r0}" if m.get("carry") else ""))
     lines.append(f"\n{b}jev side{r0}{dim}  this session{r0}")
     if not j["requests"] and not j["asked"] and not j.get("trimmed"):
         lines.append(f"  {dim}nothing decided yet this session · `jev sift`, `jev tests`, `jev cluster` … will show up here{r0}")
@@ -465,7 +549,13 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         lines.append(f"  {b}low effort{r0}         {ro['effort_turns']} routine turn(s){dim} · {verdict}{r0}")
     if view:
         lines.append(f"  {b}plan{r0}               {g}{plan_line(view)}{r0}{dim} · "
-                     + " · ".join(f"{_window_name(k)} {w['used']:g}% used" for k, w in view["windows"].items()) + f"{r0}")
+                     + " · ".join(f"{w.get('label') or _window_name(k)} {w['used']:g}% used at {w.get('as_of', '?')}" for k, w in view["windows"].items())
+                     + ("" if "five_hour" in view["windows"] else " · no 5-hour reading yet") + f"{r0}")
+    sub = s.get("subagents") or {}
+    if sub.get("count") and not ro["subagents"]:
+        models = ", ".join(f"{n_} on {k_.replace('claude-', '')}" for k_, n_ in sub["models"].items())
+        lines.append(f"  {b}subagents{r0}          {sub['count']} ran ({models}) for ~${sub['cost']:.2f}"
+                     + (f" · {y}~${sub['could_save']:.2f} less on Sonnet{r0}{dim}: turn on subagent_model{r0}" if sub["could_save"] >= 0.01 else f"{dim} · nothing to gain from a cheaper model{r0}"))
     caught = [f"guard asked {sf['asked']}×"] if sf["asked"] else []
     caught += [f"{sf['pages_flagged']} fetched page(s) flagged"] if sf["pages_flagged"] else []
     caught += [f"{sf['files_flagged']} instruction file(s) flagged"] if sf["files_flagged"] else []
