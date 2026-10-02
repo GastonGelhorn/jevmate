@@ -61,14 +61,19 @@ class SessionSummary(unittest.TestCase):
         self.assertEqual(j["tokens"], 10_500)
         self.assertEqual(j["requests"], 2)
         self.assertAlmostEqual(j["paid"], 10_000 / 1e6 * 0.042)
-        self.assertAlmostEqual(j["once"], 10_500 / 1e6 * 10.0)
+        self.assertEqual(j["kept_out"], 10_000, "the guard's tokens went through jev but are not text the agent avoided reading")
+        self.assertEqual(j["overhead"], 500)
+        self.assertAlmostEqual(j["once"], 10_000 / 1e6 * 10.0, msg="read once on the next turn, at Fable 5.1's input price")
         self.assertGreater(j["reread"], 0, "turns after the rows are priced as cache reads")
-        self.assertEqual(list(j["labels"])[0], "sift")
+        self.assertEqual(j["pricing"], "per-model")
+        self.assertEqual(list(j["labels"]), ["sift"])
+        self.assertEqual(list(j["hook_labels"]), ["guard"])
         self.assertEqual(s["model"]["turns"], 7)
         text = metrics.render_session(s, color=False)
         self.assertIn("went through jev", text)
         self.assertIn("42 decisions", text)
         self.assertIn("by command", text)
+        self.assertIn("safety checks", text)
         self.assertIn("42 decisions", metrics.one_line(s))
 
     def test_no_transcript_no_rows(self):
@@ -77,6 +82,100 @@ class SessionSummary(unittest.TestCase):
         self.assertEqual(s["jev"]["requests"], 0)
         self.assertIn("nothing decided", metrics.render_session(s, color=False))
         self.assertIsNone(metrics.find_transcript(str(self.home), None, None))
+
+
+def ts(minutes):
+    return (datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+class Prices(unittest.TestCase):
+    def setUp(self):
+        fresh_home()
+
+    def test_current_models(self):
+        self.assertEqual(metrics.price_for("claude-opus-5-5"), (4.0, 20.0, 0.20, 5.0))
+        self.assertEqual(metrics.price_for("claude-opus-5"), (5.0, 25.0, 0.5, 6.25))
+        self.assertEqual(metrics.price_for("claude-sonnet-5-5"), (2.0, 10.0, 0.20, 2.5))
+        self.assertEqual(metrics.price_for("claude-fable-5-1"), (10.0, 50.0, 0.25, 12.5))
+        self.assertEqual(metrics.price_for("claude-haiku-4-5"), (1.0, 5.0, 0.1, 1.25))
+        self.assertEqual(metrics.context_size("claude-haiku-4-5"), 200_000)
+        self.assertTrue(metrics.reads_for_agent("sift") and metrics.reads_for_agent("mcp:rank") and metrics.reads_for_agent("lib"))
+        self.assertFalse(metrics.reads_for_agent("hook:screen") or metrics.reads_for_agent("inspect") or metrics.reads_for_agent("tune"))
+
+
+class WouldHaveCost(unittest.TestCase):
+    def setUp(self):
+        fresh_home()
+
+    def test_each_turn_at_its_own_model_until_the_compaction(self):
+        turns = [(ts(1), "claude-fable-5-1", 100_000), (ts(2), "claude-fable-5-1", 100_000),
+                 (ts(3), "claude-opus-5-5", 100_000), (ts(5), "claude-opus-5-5", 100_000)]
+        once, reread = metrics.would_have_cost([(ts(0), 100_000)], turns, [ts(4)])
+        self.assertAlmostEqual(once, 0.1 * 10.0, msg="once, as input, on the first turn after it, at Fable 5.1's price")
+        self.assertAlmostEqual(reread, 0.1 * 0.25 + 0.1 * 0.20, msg="re-read at each later turn's own cache price; nothing after the compaction")
+
+    def test_text_that_would_not_have_fit_stops_being_re_read(self):
+        turns = [(ts(1), "claude-fable-5-1", 100_000), (ts(2), "claude-fable-5-1", 850_000), (ts(3), "claude-fable-5-1", 100_000)]
+        once, reread = metrics.would_have_cost([(ts(0), 100_000)], turns, [])
+        self.assertAlmostEqual(once, 1.0)
+        self.assertEqual(reread, 0.0, "850k + 100k is past the compaction bar of a 1M window: the text would have been dropped")
+
+    def test_flat_price_and_text_after_the_last_turn(self):
+        turns = [(ts(1), "claude-opus-5-5", 1_000)]
+        once, reread = metrics.would_have_cost([(ts(0), 1_000_000), (ts(9), 1_000_000)], turns, [], flat_price=3.0)
+        self.assertAlmostEqual(once, 6.0, msg="the person's own price, for both; the second is read by a turn still to come")
+        self.assertEqual(reread, 0.0)
+
+    def test_the_transcript_records_compactions_and_main_thread_turns(self):
+        home = fresh_home()
+        p = home / "s.jsonl"
+        lines = [turn("m1", "claude-fable-5-1", ts(1) + ".000Z"),
+                 json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": ts(2) + ".000Z"}),
+                 turn("m2", "claude-opus-5-5", ts(3) + ".000Z"),
+                 json.dumps({"type": "assistant", "isSidechain": True, "timestamp": ts(4) + ".000Z",
+                             "message": {"id": "s1", "model": "claude-haiku-4-5", "usage": {"input_tokens": 5, "output_tokens": 5}}})]
+        p.write_text("\n".join(lines) + "\n")
+        tr = metrics.Transcript(p)
+        tr.refresh()
+        self.assertEqual(tr.compactions, [ts(2)])
+        self.assertEqual([m for _, m, _ in tr.turns], ["claude-fable-5-1", "claude-opus-5-5"], "a subagent's turn is not the main context")
+        self.assertIn("claude-haiku-4-5", tr.per, "but it is still paid for")
+
+
+class Plan(unittest.TestCase):
+    def setUp(self):
+        fresh_home()
+
+    def test_learns_points_per_dollar_and_prices_the_kept_out_text(self):
+        r = lambda five, week: {"five_hour": {"pct": five, "resets": "A"}, "seven_day": {"pct": week, "resets": "W"}}  # noqa: E731
+        self.assertIsNone(metrics.plan_view("s1", 10.0, None), "off a subscription there is no plan")
+        metrics.plan_record("s1", 1.0, r(10.0, 2.0), now=100)
+        for i in range(1, 4):
+            metrics.plan_record("s1", 1.0 + 2 * i, r(10.0 + i, 2.0 + 0.2 * i), now=100 + i)
+        view = metrics.plan_view("s1", 10.0)
+        five, week = view["windows"]["five_hour"], view["windows"]["seven_day"]
+        self.assertEqual(view["billing"], "subscription")
+        self.assertAlmostEqual(five["rate"], 0.5, places=2, msg="3 points over $6")
+        self.assertAlmostEqual(five["kept_free"], 5.0, places=1, msg="$10 of text at 0.5 points a dollar")
+        self.assertAlmostEqual(week["kept_free"], 1.0, places=1)
+        self.assertEqual(five["used"], 13.0)
+        self.assertIn("≈ 5.0% of the 5-hour window", metrics.plan_line(view))
+        self.assertIn("of the week", metrics.plan_line(view))
+
+    def test_a_reset_a_rollback_or_another_session_teaches_nothing(self):
+        metrics.plan_record("s1", 1.0, {"five_hour": {"pct": 50.0, "resets": "A"}}, now=100)
+        metrics.plan_record("s1", 3.0, {"five_hour": {"pct": 1.0, "resets": "B"}}, now=101)   # the window reset
+        metrics.plan_record("s2", 1.0, {"five_hour": {"pct": 2.0, "resets": "B"}}, now=102)   # another session, active
+        metrics.plan_record("s1", 9.0, {"five_hour": {"pct": 9.0, "resets": "B"}}, now=103)   # its interval overlaps s2
+        metrics.plan_record("s1", 8.0, {"five_hour": {"pct": 9.5, "resets": "B"}}, now=104)   # the session's figure went back
+        rates = json.loads((settings.HOME / "plan.json").read_text())["rates"]
+        self.assertEqual(rates, {})
+        self.assertIsNone(metrics.plan_view("s1", 10.0)["windows"]["five_hour"]["kept_free"], "still measuring")
+        self.assertIn("measuring", metrics.plan_line(metrics.plan_view("s1", 10.0)))
+
+    def test_parse(self):
+        self.assertEqual(metrics.parse_plan(["five_hour=23.5@2026-10-02T14:00:00Z", "seven_day=4", "bogus"]),
+                         {"five_hour": {"pct": 23.5, "resets": "2026-10-02T14:00:00Z"}, "seven_day": {"pct": 4.0, "resets": None}})
 
 
 if __name__ == "__main__":
