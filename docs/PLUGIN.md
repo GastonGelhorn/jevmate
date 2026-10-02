@@ -1,7 +1,7 @@
 # The plugin, piece by piece
 
 ```
-.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, band, evidence, routing, screen, triage, trim, inspect)
+.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, band, evidence, screen, triage, trim, inspect, routing, subagents, honesty)
 .claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jevmate@gastongelhorn`
 skills/jev/SKILL.md             the skill Claude invokes on its own
 skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jevmate:… for the person; never auto-invoked
@@ -10,7 +10,7 @@ agents/reviewer.md              jevmate:reviewer, a Sonnet agent that reads the 
 hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in); and the mod
 hooks/jevmate.tsx               the mod (Claude Code 2.1.287+): the line above the prompt, /jevmate and its pane, the guard's question in bypass mode, the evidence line, routing
 jev/packs/core.json             ten questions with their thresholds: jev q install core
-.mcp.json                       `jev mcp`: decide, rank, sift, tests, diff, cluster, session as tools
+.mcp.json                       `jev mcp`: decide, ask, rank, sift, tests, diff, cluster, session as tools
 bin/jev                         on the Bash tool's PATH while the plugin is enabled
 evals/                          six cases for `claude plugin eval`
 tests/mod/                      the mod's tests: `claude plugin test .`
@@ -42,9 +42,9 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
 - **PreToolUse on Bash** (`guard`): read-only commands skip the call. Otherwise three yes/no in one
   request: destructive, outside the project, and part of what the person last asked for (the request
   is read from the transcript). `ask` at p(destructive) >= 0.60, and also at p >= 0.45 when the
-  command is not part of the request (p <= 0.25); never `allow`; `deny` at p >= 0.90 only in
-  bypassPermissions mode or with `guard_mode: deny`. Keys, tokens and passwords in a command are
-  masked before it is sent or logged.
+  command is not part of the request (p <= 0.25); never `allow`; `deny` at p >= 0.90 with
+  `guard_mode: deny`, or in bypassPermissions mode when the mod is not there to ask (below). Keys,
+  tokens and passwords in a command are masked before it is sent or logged.
 - **PostToolUse on WebFetch / WebSearch** (`screen`): one yes/no over the returned text; at
   p >= 0.55 one line of context says the text reads like instructions aimed at an agent.
 - **PostToolUse and PostToolUseFailure on Bash** (`after-bash`): records that the command ran (the
@@ -62,8 +62,8 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
 - **UserPromptSubmit** (`route`, opt-in via `route_mode`): rates the prompt on a four-level rubric
   (lookup, routine, judgment, hard). With `route_mode: hint`, a routine prompt at confidence >= 0.80
   (`route_conf`) gets one line suggesting a cheaper subagent or lower effort. With `effort` the hook
-  stays quiet and the mod acts instead (below). The old `model` value now reads as `hint`. Prompts under 40 characters, slash
-  commands and attachments are skipped. It ships off: measured on 101 prompts written in Spanish
+  stays quiet and the mod acts instead (below). Prompts under 40 characters, slash commands and
+  attachments are skipped. It ships off: measured on 101 prompts written in Spanish
   over five days, a 0.55 bar flagged half of them and several were design decisions or multi-step
   tasks; at 0.80 it would have flagged a quarter, and the sampled ones were routine.
 - **Stop** (`stop`, opt-in via `honesty_mode`): when the reply reads like "the tests pass" and the
@@ -93,9 +93,9 @@ it into the session; older versions ignore the field and run the hooks alone. It
 - **The guard's question** (`guard_mode`): in bypassPermissions mode the PreToolUse hook holds its
   verdict for the mod instead of denying, and the mod's permission check reads it back (no second
   model call) and asks the person: "Refuse" or "Run it". `ask` asks from p >= 0.90, `strict` from
-  p >= 0.60 and for unrequested commands, `deny` keeps the old deny. Outside bypass mode nothing
-  changes: the permission prompt is the question. A dismissed dialog refuses; so does a failure of
-  the mod while it was about to ask.
+  p >= 0.60 and for unrequested commands; with `deny` the hook denies from p >= 0.90 and nothing is
+  asked. Outside bypass mode nothing changes: the permission prompt is the question. A dismissed
+  dialog refuses; so does a failure of the mod while it was about to ask.
 - **The evidence line** (`evidence_line`): under a reply that says tests, a build or a check passed
   when no test, build or lint command ran in that turn. A regular expression, no model call.
 - **Low effort on routine turns** (`route_mode: effort`): a prompt rated routine runs its turn at
@@ -194,6 +194,7 @@ never prompt. Requires a Claude Code that has `claude plugin eval`.
 
 ## Files the plugin writes
 
-Only under the jev home (`~/.config/jev`, or `JEV_HOME`): the key, `config.json`, the ledger,
-`hooks.log`, `cache/`, `sessions/`, `questions/`. Nothing under `${CLAUDE_PLUGIN_ROOT}`, which
-changes on every update.
+Under the jev home (`~/.config/jev`, or `JEV_HOME`): the key, `config.json`, the ledger,
+`hooks.log`, `plan.json`, `cache/`, `sessions/`, `questions/`, `outputs/`. The full output of a
+trimmed command or a red test run goes to the session's scratch folder when Claude Code has one,
+else to `outputs/`. Nothing under `${CLAUDE_PLUGIN_ROOT}`, which changes on every update.

@@ -83,7 +83,7 @@ between runs, and the band to hand to a reader. `--save` keeps the winner; `--q 
 | `/jevmate:setup` | key, backend and a health check, without the key ever entering the chat |
 | `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks, so the main context pays for neither |
 | hooks | below |
-| MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`, for when a typed call beats a shell command |
+| MCP tools | `decide`, `ask`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`, for when a typed call beats a shell command |
 
 ![The details pane: saved $23.09 at most, broken down into reading, trim, subagents and low effort; the 5-hour window at 64% used with 31.9% kept free by jev; the week at 35% with 5.9% kept free; safety: guard asked 8 times, 12 pages flagged, 395 checks; context 89% in use, each turn re-reads it for about $0.22](docs/img/details-pane.jpg)
 
@@ -109,10 +109,10 @@ itself and does what a hook command cannot:
   showing (on a subscription, as a share of your 5-hour window and of the week), and otherwise what
   the hooks caught. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a
   small chip, and `show` (or `/jevmate show`) opens it again;
-- in bypassPermissions mode, where no permission prompt can appear, the guard used to deny the
-  clearly destructive commands outright. Now the mod asks you in Claude's own question dialog and
-  the command runs only if you say so. It reuses the hook's verdict, so there is no second model
-  call, and it still never answers "allow" on its own;
+- in bypassPermissions mode, where no permission prompt can appear, a hook alone can only deny a
+  clearly destructive command. The mod asks you instead, in Claude's own question dialog, and the
+  command runs only if you say so. It reuses the hook's verdict, so there is no second model call,
+  and it still never answers "allow" on its own;
 - a line under a reply that says tests or a build passed when no test, build or lint command ran
   that turn. No model call and nothing blocked;
 - reading subagents on a cheaper model, if you turn it on: with `subagent_model` set to `sonnet` or

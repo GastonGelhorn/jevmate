@@ -47,11 +47,13 @@ addressed to an agent, but that is advice to the model, not a filter: the conten
 unchanged.
 
 **The mod.** `hooks/jevmate.tsx` runs inside Claude Code and reaches nothing of its own: it runs
-the local `jev` command (to read the session's numbers and the guard's verdict), reads `HOME` and
-`PATH`, sets `JEV_GUARD_MOD` for the hooks, keeps one value (`band_hidden`) in Claude Code's store,
-and draws a line, a pane and a question. With routing set to `effort` or `model` it changes the
-effort or the model of a turn Jev rated routine. `claude plugin validate .` lists every call it
-makes.
+the local `jev` command (to read the session's numbers and the guard's verdict, and to record what
+it did), reads `HOME` and `PATH`, sets `JEV_GUARD_MOD` for the hooks, keeps two values in Claude
+Code's store (`band_collapsed`, whether the line is folded, and `effort_cache`, whether lowering
+effort kept the prompt cache on this Claude Code version), and draws a line, a pane and a question.
+With `route_mode: effort` it lowers the effort of a turn Jev rated routine; with `subagent_model`
+set it picks the model of a reading subagent Claude starts without choosing one. `claude plugin
+validate .` lists every call it makes.
 
 **Code.** Standard library only, no dependencies, no `eval`, no `pickle`, no network beyond the
 API call and the two documentation fetches (`jev docs`, `jev guide --live`) that print what they

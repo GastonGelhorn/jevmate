@@ -103,15 +103,6 @@ p(instructions addressed to an AI assistant or agent), before choosing `JEV_SCRE
 | a documentation paragraph on Retry-After and backoff | 0.06 |
 | a README: "run npm install, then npm run dev, open localhost:3000" | 0.02 |
 
-## A whole session (2026-09-25)
-
-One long Claude Code session building this tool: 164 model turns, an estimated $46 at list price,
-of which 42.9M tokens were the conversation re-read from cache every turn. jev made 33 decisions
-over 35,678 tokens of text for $0.0015; had the agent read that text, it would have cost about
-$0.45 (once as input, then re-read on later turns). About 1% of the session. The lesson is in
-`jev watch`'s last line: jev only touches what it keeps out of the context; the history already
-in it is paid for every turn regardless. Sessions that filter hundreds of items invert the ratio.
-
 ## Startup and transport (2026-09-25)
 
 Median of nine runs each, macOS, Python 3.14; the interpreter alone starts in 17 ms. "Before" is
@@ -138,10 +129,10 @@ cache key; accented text shrinks by about a third.
 `jev watch` reads the session transcript incrementally (only the bytes appended since its last
 refresh), so a 10 MB transcript is parsed once, not every five seconds.
 
-## Where a session's money goes (2026-10-02)
+## Where a coding session's money goes (2026-10-02)
 
-The session that built this plugin, priced per model at list price from its transcript: about $153
-over 468 main-thread turns on Fable 5.1, Opus 5 and Opus 5.5, with two compactions.
+One long coding session in Claude Code, priced per model at list price from its transcript: about
+$153 over 468 main-thread turns on three models, with two compactions.
 
 | part | estimate | share |
 |---|---|---|
@@ -150,14 +141,10 @@ over 468 main-thread turns on Fable 5.1, Opus 5 and Opus 5.5, with two compactio
 | reading it back from the cache | $51.00 | 33.3% |
 | plain input | $0.08 | 0.1% |
 
-Tool results that passed 4,000 tokens from Bash, Grep, Glob, WebFetch, WebSearch and MCP tools: 15,
-for 89,827 tokens. Carried until the next compaction at each turn's model, they cost $2.87: about 2% of
-the session, the ceiling for anything that only trims. Of the long Bash outputs, six were file
-reads, which trim never touches.
-
-Before this measurement the session view counted the safety hooks' own requests as text kept out of
-the context and priced every turn at one model with no regard for compactions; it reported a saving of
-about the whole session. It now counts only reads that replaced the agent's own, and the hooks apart.
+Two thirds of it is the conversation itself, written to the cache and read back on every turn, and a
+third is Claude's output. Those are the slices the two opt-in levers reach: a reading subagent on a
+cheaper model takes its whole task out of the main conversation, and low effort spends less output on
+a routine turn.
 
 ## Output sizes and the trim floor (2026-10-02)
 
