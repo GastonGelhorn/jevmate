@@ -92,8 +92,9 @@ On Claude Code 2.1.287 and later the plugin also ships a mod, a module that runs
 itself and does what a hook command cannot:
 
 - a line above the prompt with this session's numbers, in your theme's colors, in the terminal and
-  in the desktop app. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a
-  small chip, and `show` (or `/jevmate show`) opens it again;
+  in the desktop app. On a subscription the saving reads as a share of your 5-hour window and of the
+  week. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a small chip,
+  and `show` (or `/jevmate show`) opens it again;
 - in bypassPermissions mode, where no permission prompt can appear, the guard used to deny the
   clearly destructive commands outright. Now the mod asks you in Claude's own question dialog and
   the command runs only if you say so. It reuses the hook's verdict, so there is no second model

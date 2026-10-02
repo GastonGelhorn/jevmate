@@ -129,11 +129,32 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
 
 ## The metric
 
-`jev session` (and the line above the prompt, `/jevmate`, `/jevmate:stats`, and `jev watch`) shows the
-session's three measured rows: what went through jev, what that text would have cost the agent to
-read (once as input, plus its re-read on later turns), and the difference, next to the session's
-model spend estimated from the transcript at list price. Attribution is exact for hook calls and,
-with the plugin, for the agent's own `jev` commands (the SessionStart hook tags them).
+`jev session` (and the line above the prompt, `/jevmate`, `/jevmate:stats`, and `jev watch`) shows:
+
+- **went through jev**: every request of the session, hooks included: decisions, tokens, what jev
+  charged. Attribution is exact for hook calls and, with the plugin, for the agent's own `jev`
+  commands (the SessionStart hook tags them).
+- **kept out**: only text that stood in for the agent's own reading (sift, rank, batch, tests, diff,
+  failures, cluster, stream, the single-decision commands, the MCP tools, scripts built on the
+  library) and what the trim hook dropped. The guard, the screen, inspect, routing, triage and the
+  honesty check also go through jev, but the agent would not have read that text anyway, so they are
+  listed apart as safety checks.
+- **would have cost**: each piece once as input on the first turn after it, at that turn's model,
+  then again as a cache read on every later turn, until the conversation was compacted (the
+  transcript marks each compaction) or until the text would no longer have fit beside the real
+  context (90% of the model's window). List prices per model, checked 2026-09-25;
+  `jev config set model_prices` overrides them, `jev config set agent_price N` prices the first read
+  at a flat $N per million instead.
+- **saved**: that, minus what jev charged for those reads. A ceiling, since the uncertain band was
+  read anyway. The share of the session uses Claude Code's own `/cost` figure when the mod passes it,
+  else the transcript estimate.
+- **on a subscription** no token is billed, so the dollars are an API equivalent. With each refresh
+  the mod passes Claude Code's readings of the 5-hour and weekly windows, and jev learns how many
+  points of each window one API-equivalent dollar takes: the points a window moved over the dollars
+  the session spent meanwhile, decayed so it follows the plan. An interval in which the window
+  reset, the session's figure went back, or another session was active teaches nothing. After $2 of
+  observed use the saving shows as a share of the 5-hour window and of the week; until then it says
+  "measuring". The rates and the latest readings live in `plan.json` in the jev home.
 
 ## Evals
 

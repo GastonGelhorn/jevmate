@@ -27,6 +27,8 @@ never the answers. The cache stores the answers, keyed by a hash of the request,
 home with your user's permissions; `jev cache clear` removes them. `hooks.log` keeps one line per
 hook decision, with the command masked and cut to 200 characters. Trimmed output and red test runs
 are saved in full to the session's scratch folder or the jev home, so nothing the trim drops is lost.
+`plan.json` keeps, on a subscription, the 5-hour and weekly windows' percentages and each session's
+cost for 14 days, to learn how much of a window a dollar of use takes.
 
 **The key.** `jev auth set` writes it with mode 0600 and never prints it whole. The plugin's
 configuration field is marked sensitive, so Claude Code keeps it in the platform's credential
