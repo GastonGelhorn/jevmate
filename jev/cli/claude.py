@@ -61,6 +61,9 @@ def register(sub) -> None:
     se.add_argument("--plain", action="store_true", help="no colours (for the chat, or a file)")
     se.add_argument("--json", action="store_true")
     se.add_argument("--compact", action="store_true")
+    se.add_argument("--spent", type=float, help="the session's cost as Claude Code totals it (/cost); the plugin's mod passes it")
+    se.add_argument("--plan", action="append", metavar="WINDOW=PCT[@RESETS]",
+                    help="a plan window's use, e.g. five_hour=23.5@2026-10-02T14:00:00Z (repeatable); the plugin's mod passes them on a subscription")
     se.set_defaults(fn=cmd_session)
 
     ins = sub.add_parser("inspect", help="read installed skills, plugins, agents and hook files for instructions aimed at an agent, and planted markers",
@@ -257,7 +260,7 @@ def render_statusline(raw: str) -> str:
     left = " · ".join(x for x in (model, f"${cost:.2f}" if isinstance(cost, (int, float)) else "", f"ctx {ctx:.0f}%" if isinstance(ctx, (int, float)) else "") if x)
     j = metrics.jev_side(cwd, sid or None, since)
     if j["requests"] or j["asked"]:
-        right = (f"{GREEN}jev{RESET}: {j['decisions']:,} decisions · {fmt_k(j['tokens'])} tokens kept out · {GREEN}~${j['would']:.2f} not spent{RESET}{DIM} (ceiling){RESET}"
+        right = (f"{GREEN}jev{RESET}: {j['decisions']:,} decisions · {fmt_k(j['kept_out'])} tokens kept out · {GREEN}~${j['would']:.2f} not spent{RESET}{DIM} (ceiling){RESET}"
                  + (f" · {YELLOW}hooks asked {j['asked']}{RESET}" if j["asked"] else "") + f"{DIM} · ${j['paid']:.4f} paid{RESET}")
     else:
         right = f"{DIM}jev: nothing decided yet this session{RESET}"
@@ -348,7 +351,7 @@ def cmd_session(args) -> int:
     cwd = os.path.realpath(args.cwd or os.getcwd())
     sid = args.session or (os.environ.get("JEV_SESSION", "").removeprefix("session:") or None)
     tr = Path(args.transcript).expanduser() if args.transcript else None
-    s = metrics.session_summary(cwd, sid, tr)
+    s = metrics.session_summary(cwd, sid, tr, spent=args.spent, plan=metrics.parse_plan(args.plan) or None)
     if args.json:
         print(json.dumps(s, indent=None if args.compact else 2, ensure_ascii=False))
         return 0
