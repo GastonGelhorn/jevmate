@@ -5,14 +5,14 @@
     "email": "gastongelhorn@gmail.com"
   },
   "metadata": {
-    "description": "jevmate: Jev for coding agents",
+    "description": "jevmate: a fast decision layer for coding agents",
     "version": "1.5.4"
   },
   "plugins": [
     {
       "name": "jevmate",
       "source": "./",
-      "description": "Jev for coding agents: triage, test selection, review by risk, output trimming, a Bash guard and a fetch screen, the session's numbers above the prompt, with measured thresholds.",
+      "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures and reviews diffs, so the expensive model reads only what matters. Measured thresholds.",
       "category": "productivity",
       "tags": [
         "decisions",

@@ -2,7 +2,7 @@
   "name": "jevmate",
   "displayName": "jevmate",
   "version": "1.5.4",
-  "description": "Jev for coding agents. Triage, rank and filter hundreds of items without reading them, pick the tests a change can break, review hunks by risk, trim long command output, and see what stayed out of your context, live above the prompt. A Bash guard that asks and never allows, a screen for fetched content, an inspection of installed skills and mods. Thresholds measured, not guessed.",
+  "description": "A fast decision layer for coding agents. Jev ranks files, picks the tests a change can break, sorts failures and reviews diffs by risk, so Claude reads only what matters and judges only what Jev is unsure of. Also: long output trimmed, safety signals on Bash and fetched content, and the session's numbers above the prompt. Thresholds measured, not guessed.",
   "author": {
     "name": "Gaston Gelhorn",
     "email": "gastongelhorn@gmail.com"
