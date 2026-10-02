@@ -181,7 +181,7 @@ searches, logs, test suites, long diffs, hundreds of items to sort. Three `jev s
 WordPress repository of 836 files judged 2.3 million tokens for ten cents; reading them would have
 cost about $23 at API prices, a third of a 5-hour window on a subscription. In a session spent
 writing code there is less to keep out, and the line above the prompt then shows what the hooks
-caught rather than inventing a saving.
+caught.
 
 Two more levers reach the costs that reading does not: reading subagents on a cheaper model
 (`subagent_model`) and low effort on routine turns (`route_mode: effort`). Both are opt-in and
