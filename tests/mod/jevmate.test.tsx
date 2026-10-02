@@ -19,8 +19,8 @@ const SMALL = {
 }
 
 const WINDOWS = {
-  five_hour: { used: 23.5, resets_at: '2026-10-02T14:00:00Z', rate: 0.5, kept_free: 9.2 },
-  seven_day: { used: 12, resets_at: '2026-10-05T09:00:00Z', rate: 0.05, kept_free: 0.92 },
+  five_hour: { label: '5-hour window', used: 23.5, resets_at: '2026-10-02T14:00:00Z', as_of: '11:30', rate: 0.5, kept_free: 9.2 },
+  seven_day: { label: 'week', used: 12, resets_at: '2026-10-05T09:00:00Z', as_of: '11:30', rate: 0.05, kept_free: 0.92 },
 }
 const SUBSCRIBED = { ...SUMMARY, plan: { billing: 'subscription', windows: WINDOWS } }
 const MEASURING = {
@@ -189,9 +189,12 @@ describe('the pane', () => {
       await $.command.run({ command: 'jevmate', args: '' })
       const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
       await pane.redraw()
-      expect(await pane.find({ text: /722k tokens/ })).toBeDefined()
-      expect((await pane.find({ text: /~\$18\.40/ }))?.text ?? '').toContain('re-read until the next compaction')
-      expect(await pane.find({ text: /46%/ })).toBeDefined()
+      expect((await pane.find({ text: /^\s*reading/ }))?.text ?? '').toContain('700k tokens judged by jev instead of read')
+      expect((await pane.find({ text: /^\s*reading/ }))?.text ?? '').toContain('re-read until the next compaction')
+      expect((await pane.find({ text: /^\s*trim/ }))?.text ?? '').toContain('22k tokens of command output kept out in 1 run')
+      expect((await pane.find({ text: /^\s*subagents/ }))?.text ?? '').toContain('no subagents this session')
+      expect((await pane.find({ text: /^saved/ }))?.text ?? '').toContain("46% of the session's $40.00")
+      expect((await pane.find({ text: /^context/ }))?.text ?? '').toContain('in use')
       expect(await pane.find({ text: /sift 400k/ })).toBeDefined()
       expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
       expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain('nothing from the Claude plan')
@@ -202,6 +205,20 @@ describe('the pane', () => {
       expect(w.store.get('band_collapsed')).toBe(true)
     })
   }
+
+  test('every lever says whether it is on, and what the subagents could have saved', async ($, on) => {
+    const summary = { ...SMALL, model: { ...SUMMARY.model, carry: 0.19, last_model: 'claude-fable-5-1' },
+                      subagents: { count: 2, cost: 3.1, models: { 'claude-fable-5-1': 2 }, could_save: 1.25, read_only: 2 } }
+    world(on, { ...fresh(), summary })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^\s*subagents/ }))?.text ?? '').toContain('2 subagents ran (2 on fable-5-1) · ~$1.25 less on Sonnet')
+    expect((await pane.find({ text: /^\s*low effort/ }))?.text ?? '').toContain('off')
+    expect((await pane.find({ text: /^\s*trim/ }))?.text ?? '').toContain('no command output over ~4k tokens yet')
+    expect((await pane.find({ text: /^context/ }))?.text ?? '').toContain('each turn re-reads it: ~$0.19 on fable-5-1')
+  })
 
   test('says where jev pays off when the session saved little', async ($, on) => {
     world(on, { ...fresh(), summary: SMALL })
@@ -242,6 +259,19 @@ describe('on a subscription', () => {
       expect((await pane.find({ text: /API equivalent/ }))?.text ?? '').toContain('not billed per token')
     })
   }
+
+  test('a 5-hour window Claude Code has not read yet says so instead of a blank', async ($, on) => {
+    const summary = { ...SUBSCRIBED, plan: { billing: 'subscription', windows: { seven_day: WINDOWS.seven_day }, missing: ['five_hour'] } }
+    world(on, { ...fresh(), usage: PLAN_USAGE, summary })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^5-hour window/ }))?.text ?? '').toContain('no reading yet')
+    expect((await pane.find({ text: /^week/ }))?.text ?? '').toContain('as of 11:30')
+    const { text } = await bandText($)
+    expect(text).toContain('saved 0.9% of the week')
+  })
 
   test('while the rate is still being learnt the band shows the API equivalent', async ($, on) => {
     world(on, { ...fresh(), usage: PLAN_USAGE, summary: MEASURING })
