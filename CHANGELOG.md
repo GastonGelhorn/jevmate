@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.2 — first public release
+## 1.5.3 — first public release
 
 The `jev` command (ask, yes, pick, rate; rank, batch, sift, tune, label, scaffold; tests, diff,
 failures, cluster, stream; q and the core question pack; usage, cost, cache, session, watch,
@@ -20,6 +20,11 @@ note when another mod reaches for credentials or permissions.
 The session metric: only text that stood in for the agent's reading counts as kept out (the hooks are
 listed apart as safety checks); each piece is priced at the model of the turn that would have read
 it, then re-read as cache until the next compaction or until it would not have fit; on a
-subscription the saving shows as a share of the 5-hour window and of the week.
+subscription the saving shows as a share of the 5-hour window and of the week. The line above the
+prompt leads with value in its own units: a saving worth showing, or what the hooks caught.
+
+Levers on the big slices, opt-in and measured as they run: reading subagents on a cheaper model, and
+low effort on routine turns once a check showed it keeps the prompt cache. Trim starts at 4,000
+tokens (measured), and file reads behind `cd dir &&` are recognized and left alone.
 
 Backends: TypeSafe, OpenRouter, ollaya, von or any URL.
