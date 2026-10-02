@@ -28,7 +28,16 @@ SAFE = re.compile(
 RISKY = re.compile(r"[>|;&`$]|\b(rm|mv|dd|mkfs|chmod|chown|kill|pkill|curl|wget|sudo|truncate|drop|delete|push|reset|rebase|checkout|clean|prune|purge|format|shred)\b"
                    r"|--force|--hard|\s-[a-zA-Z]*f")
 REMOTE = re.compile(r"\b(curl|wget|gh\s+(pr|issue|api|release|gist)\b|https?://)")
-READ_LIKE = re.compile(r"^\s*(cat|head|tail|less|more|sed|awk|grep|rg|git\s+(diff|show|log|blame)|ls|find|fd|tree|jq|yq|bat|diff|wc|jev)\b")
+READ_LIKE = re.compile(r"^\s*(cat|head|tail|less|more|sed|awk|grep|rg|git\s+(-C\s+\S+\s+)?(diff|show|log|blame)|ls|find|fd|tree|jq|yq|bat|diff|wc|jev)\b")
+_PREFIX = re.compile(r"^\s*(?:(?:cd|pushd)\s+\S+|export\s+\w+=\S*|\w+=\S*|true|set\s+-\S+)\s*(?:&&|;)\s*")
+
+
+def reads_files(cmd: str) -> bool:
+    """Is this command, past any `cd dir &&`, `X=1;` or `set -e;` in front of it, a read of files or history?"""
+    prev = None
+    while prev != cmd:
+        prev, cmd = cmd, _PREFIX.sub("", cmd, count=1)
+    return bool(READ_LIKE.match(cmd))
 NOTABLE = re.compile(r"(?i)\b(error|exception|traceback|fail(ed|ure|s)?|fatal|panic|denied|not found|no such|cannot|unable|warn(ing)?|deprecated|exit code|assert\w*|segfault|killed)\b")
 MISSING = re.compile(r"(?i)ModuleNotFoundError|No module named|ImportError|command not found|Cannot find module|Could not find a version|is not recognized as an "
                      r"internal|Class [\"']?[\w\\]+[\"']? not found|Unable to locate package|No such file or directory|Package .+ (is )?not (found|installed)|could not resolve|undefined reference")
@@ -65,6 +74,9 @@ REQUESTED_Q = ("Is running `command` a sensible step toward what the person aske
 TRIM_Q = ("Does `candidate`, a chunk of the output of `command`, carry something the person or the agent will need: a result, an error or "
           "warning, a path, a number, a decision, a diff or a line of code, rather than progress, download or install chatter, repeated "
           "boilerplate or decoration?")
+DELEGATE_Q = ("Is `task` mostly reading, searching, listing or summarizing existing material, with no design decision to make and no code to write?",
+              "find where something is, read files or logs and report what they say, list or count things, gather facts, summarize docs or a diff",
+              "write or change code, design or decide an approach, debug an unknown failure, review for subtle bugs, plan work, anything ambiguous")
 CLAIM_Q = ("Does `reply` state that tests, a build, a check or a verification were run and passed?",
            "asserts the result of running something: tests pass, the build succeeds, verified, confirmed working, all green",
            "describes changes or plans, reports what was not run, or says a check still has to be done")
@@ -445,9 +457,9 @@ def trim_output(cmd: str, stdout: str, scratch: str | None):
     line; the full output goes to disk and the marker says where. Returns None when nothing is worth
     trimming, else (new stdout, dropped tokens, kept tokens, path, dropped lines)."""
     from .textio import est_tokens
-    floor = int(float(_opt("TRIM_MIN", "JEV_TRIM_MIN", "8000")))
+    floor = int(float(_opt("TRIM_MIN", "JEV_TRIM_MIN", "4000")))  # measured 2026-10-02: 0.2% of signal lines dropped at 4,000
     total_tokens = est_tokens(len(stdout))
-    if total_tokens < floor or READ_LIKE.match(cmd) or "| jev" in cmd or stdout.lstrip()[:1] in "{[":
+    if total_tokens < floor or reads_files(cmd) or "| jev" in cmd or stdout.lstrip()[:1] in "{[":
         return None
     lines = stdout.splitlines()
     per = max(20, -(-len(lines) // 250))
@@ -543,6 +555,7 @@ def after_bash() -> int:
             note = triage(out, p.get("cwd") or "", p.get("scratchpad_dir"))
             if note:
                 notes.append(note)
+                ledger.log_hook("triage", {"cmd": shown[:200], "noted": True})
         except Exception as e:  # noqa: BLE001
             ledger.log_hook("triage", {"cmd": shown[:200], "err": type(e).__name__})
     if _opt("SCREEN_MODE", "JEV_SCREEN_MODE", "on") != "off" and REMOTE.search(cmd) and len(out) >= 80:
@@ -588,8 +601,10 @@ def route() -> int:
     mode = _opt("ROUTE_MODE", "JEV_ROUTE_MODE", "off")
     p = _payload()
     judge = bool((p or {}).get("judge"))
-    if mode == "off" or (mode in ("effort", "model") and not judge):
-        return 0  # effort and model are the mod's modes; the hook stays quiet so the hint is not doubled
+    if mode == "model":
+        mode = "hint"  # switching the main turn's model re-writes the whole cache on the other model; subagent_model is the safe lever
+    if mode == "off" or (mode == "effort" and not judge):
+        return 0  # effort is the mod's mode; the hook stays quiet so the hint is not doubled
     prompt = ((p or {}).get("prompt") or "").strip()
     # short prompts, slash commands and attachments (an image or file placeholder carries no task) are skipped
     if len(prompt) < 40 or prompt.startswith(("/", "[Image:", "@\"", "@/")):
@@ -743,7 +758,61 @@ def session_start() -> int:
     return 0
 
 
-HANDLERS = {"guard": guard, "screen": screen, "after-bash": after_bash, "route": route, "stop": stop, "session-start": session_start}
+# ---------------------------------------------------------------- the mod's channel
+
+RECORDABLE = {"evidence", "effort", "effort-cache", "subagent"}
+
+
+def record() -> int:
+    """One row in hooks.log on the mod's behalf: an evidence line it showed, a turn it ran at low effort,
+    what lowering effort did to the prompt cache, a subagent it ran on a cheaper model (whose saving is
+    priced here, from the subagent turn's own usage, so the price table stays in one place)."""
+    p = _payload() or {}
+    hook = str(p.get("hook") or "")
+    if hook not in RECORDABLE:
+        return 0
+    from . import ledger
+    row = {k: v for k, v in p.items() if k not in ("hook", "session_id") and isinstance(v, (str, int, float, bool))}
+    if hook == "subagent":
+        from .metrics import price_for
+        u = p.get("usage") or {}
+
+        def cost(model: str) -> float:
+            pi, po, pcr, pcw = price_for(model)
+            return ((u.get("input_tokens") or 0) * pi + (u.get("output_tokens") or 0) * po
+                    + (u.get("cache_read_input_tokens") or 0) * pcr + (u.get("cache_creation_input_tokens") or 0) * pcw) / 1e6
+        parent, model = str(p.get("parent") or ""), str(p.get("model") or "")
+        row.update(spent=round(cost(model), 6), saved_usd=round(max(0.0, cost(parent) - cost(model)), 6),
+                   tokens=sum(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")))
+    ledger.log_hook(hook, row)
+    return 0
+
+
+def delegate() -> int:
+    """The mod's question before a subagent starts: is its task reading rather than judgment? One JSON line."""
+    p = _payload() or {}
+    task = str(p.get("prompt") or "").strip()
+    if len(task) < 20:
+        print(json.dumps({"reading": None}))
+        return 0
+    from . import ledger
+    try:
+        from .questions import noul
+        c = _client("hook:delegate", "JEV_DELEGATE_TIMEOUT", "4")
+        r = c.ask({"task": mask_secrets(task[:8000]), "kind": str(p.get("subagent_type") or "")},
+                  {"reading": noul(DELEGATE_Q[0], true=DELEGATE_Q[1], false=DELEGATE_Q[2])})
+        pr = float(r["answers"]["reading"]["noul"])
+    except Exception as e:  # noqa: BLE001
+        ledger.log_hook("delegate", {"err": type(e).__name__})
+        print(json.dumps({"reading": None}))
+        return 0
+    ledger.log_hook("delegate", {"p": round(pr, 3), "kind": str(p.get("subagent_type") or "")[:60], "cached": bool(r.get("cached"))})
+    print(json.dumps({"reading": round(pr, 3)}))
+    return 0
+
+
+HANDLERS = {"guard": guard, "screen": screen, "after-bash": after_bash, "route": route, "stop": stop, "session-start": session_start,
+            "record": record, "delegate": delegate}
 
 
 def run(which: str) -> int:
