@@ -11,9 +11,12 @@ allowed-tools: ["Bash(jev *)"]
 jev session --plain
 ```
 
-Explain the three rows briefly to the person: "went through jev" is measured (decisions, tokens
-of text jev read instead of you); "would have cost" is that text priced at your input rate, once,
-plus its re-read on later turns; "saved" is the difference, a ceiling because the uncertain band
-was read anyway. The model side is an estimate from the transcript at list price.
+Explain the rows briefly to the person: "went through jev" is everything jev handled, hooks
+included; "kept out" is only the text jev judged instead of the agent reading it, plus trimmed
+output (the safety checks are listed apart because the agent would not have read that text);
+"would have cost" prices each piece at the model of the turn that would have read it, once, then as
+cache reads until the next compaction; "saved" is the difference, a ceiling because the uncertain
+band was read anyway. On a subscription the dollars are an API equivalent and the "plan" row gives
+the share of the 5-hour window and of the week. The model side is an estimate from the transcript.
 If the person wants these numbers without asking, they are on the line above the prompt
 (Claude Code 2.1.287 or later), and `/jevmate` opens the same table in a pane.
