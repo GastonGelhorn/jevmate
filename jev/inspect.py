@@ -80,6 +80,7 @@ def inspect(client, paths, *, only_changed: bool = True, bar: float = 0.60) -> t
     """Grade every instruction file under `paths`. Returns (rows sorted by risk, files sent). Rows for
     unchanged files come from the cache."""
     from .grading import grade
+    from .hooks import mask_secrets
     cache = load_cache() if only_changed else {}
     rows, todo, texts = [], [], []
     for f in files(paths):
@@ -94,7 +95,7 @@ def inspect(client, paths, *, only_changed: bool = True, bar: float = 0.60) -> t
             rows.append({**hit, "path": key, "cached": True})
             continue
         todo.append((key, sha))
-        texts.append({"path": f.name, "text": text[:MAX_CHARS]})
+        texts.append({"path": f.name, "text": mask_secrets(text[:MAX_CHARS])})
     if todo:
         h = grade(client, texts, json.dumps({"question": HARM_Q, "criteria": {"true": HARM_T, "false": HARM_F}}), "the agent's installed instructions")
         m = grade(client, texts, json.dumps({"question": MARK_Q, "criteria": {"true": MARK_T, "false": MARK_F}}), "the agent's installed instructions")
