@@ -4,16 +4,18 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-const SUMMARY = {
-  session: 'abcdef12',
-  cwd: '/work/shop',
-  model: { usd: 40.0, turns: 120, ctx: 290000, ctx_size: 1000000 },
-  jev: {
-    requests: 12, decisions: 1234, tokens: 900000, cached: 2, reads: 700000, overhead: 200000, trimmed: 22000, trim_runs: 1, kept_out: 722000,
-    paid: 0.0381, would: 18.4, saved: 18.36, asked: 2, once: 9.22, reread: 9.18, pricing: 'per-model', share: 0.459,
-    labels: { sift: 400000, tests: 300000 }, hook_labels: { guard: 150000, screen: 50000 },
-  },
-  plan: null,
+const JEV = {
+  requests: 12, decisions: 1234, tokens: 900000, cached: 2, reads: 700000, overhead: 200000, trimmed: 22000, trim_runs: 1, kept_out: 722000,
+  paid: 0.0381, would: 18.4, saved: 18.36, saved_total: 18.36, asked: 2, once: 9.22, reread: 9.18, pricing: 'per-model', share: 0.459,
+  labels: { sift: 400000, tests: 300000 }, hook_labels: { guard: 150000, screen: 50000 },
+  safety: { asked: 2, pages_flagged: 1, files_flagged: 0, triaged: 0, claims: 0, checks: 340 },
+  routing: { subagents: 0, subagent_saved: 0, subagent_spent: 0, effort_turns: 0, effort_cache: null },
+}
+const SUMMARY = { session: 'abcdef12', cwd: '/work/shop', model: { usd: 40.0, turns: 120, ctx: 290000, ctx_size: 1000000 }, jev: JEV, plan: null }
+const SMALL = {
+  ...SUMMARY,
+  jev: { ...JEV, kept_out: 565, reads: 565, trimmed: 0, would: 0.02, saved: 0.02, saved_total: 0.02, share: 0, labels: { 'mcp:decide': 565 },
+         safety: { asked: 28, pages_flagged: 12, files_flagged: 0, triaged: 0, claims: 0, checks: 461 } },
 }
 
 const WINDOWS = {
@@ -37,9 +39,18 @@ const PLAN_USAGE = {
 
 const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type World = { judge?: object; route?: object; summary?: object; usage?: object; calls: string[][]; store: Map<string, unknown> }
+type World = {
+  judge?: object
+  route?: object
+  delegate?: object
+  summary?: object
+  usage?: object
+  calls: string[][]
+  stdins: string[]
+  store: Map<string, unknown>
+}
 
-const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], store: new Map(Object.entries(entries)) })
+const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], stdins: [], store: new Map(Object.entries(entries)) })
 
 // Everything beneath the plugin: the engine's answers to what the mod calls, and the events it passes on.
 function world(on: On, w: World) {
@@ -57,6 +68,7 @@ function world(on: On, w: World) {
   on('fs.exists', () => ({ value: true }))
   on('env.set', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'abcdef12-0000-0000' }))
+  on('session.version', () => ({ value: { version: '2.1.287' } }))
   on('session.usage', () => ({ value: w.usage ?? { startedAt: 0, context: { window: 1000000, tokens: 290000, percent: 29 }, rateLimits: [], cost: { usd: 40.0 } } }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.log', () => ({ value: undefined }))
@@ -65,8 +77,11 @@ function world(on: On, w: World) {
   on('ui.close', () => ({ value: undefined }))
   on('process.run', (_$, e) => {
     w.calls.push([...e.argv])
+    w.stdins.push(String(e.init?.stdin ?? ''))
     if (e.argv.includes('guard')) return { value: ok(JSON.stringify(w.judge ?? { decision: '-', why: 'safe' })) }
     if (e.argv.includes('route')) return { value: ok(JSON.stringify(w.route ?? { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 })) }
+    if (e.argv.includes('delegate')) return { value: ok(JSON.stringify(w.delegate ?? { reading: 0.2 })) }
+    if (e.argv.includes('record')) return { value: ok('') }
     return { value: ok(JSON.stringify(w.summary ?? SUMMARY)) }
   })
   // What other mods would draw in the band: it has to stay under ours.
@@ -84,18 +99,21 @@ function world(on: On, w: World) {
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 200, scroll: { offset: 0, bodyRows: 1 }, view: {} }
 const PANE_PROPS = { title: 'jev', isFocused: true, bodyColumns: 100, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {} }
 
+async function bandText($: any, surface: 'terminal' | 'desktop' = 'terminal', columns = 200) {
+  const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: { ...BAND, bodyColumns: columns } })
+  await band.redraw()
+  return { band, text: (await band.find({ text: /◆ jev/ }))?.text ?? '' }
+}
+
 describe('the band above the prompt', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`shows the session's numbers on the ${surface}, above what other mods draw`, async ($, on) => {
+    test(`leads with the saving when there is one, on the ${surface}, above what other mods draw`, async ($, on) => {
       world(on, fresh())
       await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
-      const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: BAND })
-      await band.redraw()
-      const text = (await band.find({ text: /decisions/ }))?.text ?? ''
-      expect(text).toContain('◆ jev')
-      expect(text).toContain('1,234 decisions')
+      const { band, text } = await bandText($, surface)
       expect(text).toContain('~$18.36 saved')
       expect(text).toContain('46% of the session')
+      expect(text).toContain('722k tokens kept out')
       expect(text).toContain('guard asked 2×')
       expect(await band.find({ text: /another mod's band/ })).toBeDefined()
     })
@@ -104,35 +122,42 @@ describe('the band above the prompt', () => {
       const w = fresh()
       world(on, w)
       await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
-      const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: BAND })
-      await band.redraw()
+      const { band } = await bandText($, surface)
       await band.press({ key: 'hide' })
-      expect(await band.find({ text: /decisions/ })).toBeUndefined()
+      expect(await band.find({ text: /tokens kept out/ })).toBeUndefined()
       expect((await band.find({ text: /saved/ }))?.text ?? '').toContain('~$18.36 saved')
       expect(w.store.get('band_collapsed')).toBe(true)
       await band.press({ key: 'show' })
-      expect(await band.find({ text: /1,234 decisions/ })).toBeDefined()
+      expect(await band.find({ text: /722k tokens kept out/ })).toBeDefined()
       expect(w.store.get('band_collapsed')).toBe(false)
     })
   }
 
+  test('a saving under 50 cents is not shown as money: what jev caught comes first', async ($, on) => {
+    world(on, { ...fresh(), summary: SMALL })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('guard asked 28×')
+    expect(text).toContain('12 pages flagged')
+    expect(text).toContain('565 tokens kept out')
+    expect(text).not.toContain('$')
+  })
+
   test('fits a narrow terminal by dropping the least useful numbers first', async ($, on) => {
     world(on, fresh())
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 80 } })
-    await band.redraw()
-    const text = (await band.find({ text: /saved/ }))?.text ?? ''
+    const { text } = await bandText($, 'terminal', 80)
     expect(text).toContain('~$18.36 saved')
-    expect(text).not.toContain('trimmed')
+    expect(text).toContain('guard asked 2×')
+    expect(text).not.toContain('ctx')
   })
 
   test('a line an earlier build hid comes back open', async ($, on) => {
     const w = fresh({ band_hidden: true })
     world(on, w)
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-    await band.redraw()
-    expect(await band.find({ text: /1,234 decisions/ })).toBeDefined()
+    const { text } = await bandText($)
+    expect(text).toContain('tokens kept out')
     expect(w.store.has('band_hidden')).toBe(false)
   })
 
@@ -150,7 +175,7 @@ describe('the band above the prompt', () => {
     world(on, fresh())
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
     const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-    expect(await band.find({ text: /decisions/ })).toBeUndefined()
+    expect(await band.find({ text: /◆ jev/ })).toBeUndefined()
     expect(await band.find({ text: /another mod's band/ })).toBeDefined()
   })
 })
@@ -164,16 +189,29 @@ describe('the pane', () => {
       await $.command.run({ command: 'jevmate', args: '' })
       const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
       await pane.redraw()
-      expect(await pane.find({ text: /went through jev/ })).toBeDefined()
-      expect((await pane.find({ text: /~\$18\.40/ }))?.text ?? '').toContain('re-read until the next compaction')
       expect(await pane.find({ text: /722k tokens/ })).toBeDefined()
-      expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
+      expect((await pane.find({ text: /~\$18\.40/ }))?.text ?? '').toContain('re-read until the next compaction')
       expect(await pane.find({ text: /46%/ })).toBeDefined()
       expect(await pane.find({ text: /sift 400k/ })).toBeDefined()
+      expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
+      expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain('nothing from the Claude plan')
+      const drawn = JSON.stringify(await pane.drawn())
+      if (surface === 'terminal') expect(drawn).toContain('█')
+      else expect(drawn).not.toContain('█')
       await pane.press({ key: 'toggle' })
       expect(w.store.get('band_collapsed')).toBe(true)
     })
   }
+
+  test('says where jev pays off when the session saved little', async ($, on) => {
+    world(on, { ...fresh(), summary: SMALL })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect(await pane.find({ text: /pays off on reading-heavy work/ })).toBeDefined()
+    expect((await pane.find({ text: /^safety/ }))?.text ?? '').toContain('12 pages flagged')
+  })
 })
 
 describe('on a subscription', () => {
@@ -182,9 +220,7 @@ describe('on a subscription', () => {
       const w: World = { ...fresh(), usage: PLAN_USAGE, summary: SUBSCRIBED }
       world(on, w)
       await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
-      const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: BAND })
-      await band.redraw()
-      const text = (await band.find({ text: /saved/ }))?.text ?? ''
+      const { text } = await bandText($, surface)
       expect(text).toContain('saved 9.2% of 5h · 0.9% of the week')
       expect(text).not.toContain('$18.36')
       const call = w.calls.find(argv => argv.includes('--plan')) ?? []
@@ -207,35 +243,85 @@ describe('on a subscription', () => {
     })
   }
 
-  test('while the rate is still being learnt the band says so and shows the API equivalent', async ($, on) => {
+  test('while the rate is still being learnt the band shows the API equivalent', async ($, on) => {
     world(on, { ...fresh(), usage: PLAN_USAGE, summary: MEASURING })
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-    await band.redraw()
-    const text = (await band.find({ text: /saved/ }))?.text ?? ''
+    const { text } = await bandText($)
     expect(text).toContain('~$18.36 API-equivalent saved')
-    expect(text).toContain('plan share: measuring')
   })
 
   test('off a subscription nothing about plans is sent', async ($, on) => {
     const w: World = fresh()
     world(on, w)
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
-    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-    await band.redraw()
+    await bandText($)
     expect(w.calls.some(argv => argv.includes('--plan'))).toBe(false)
-    expect((await band.find({ text: /saved/ }))?.text ?? '').toContain('~$18.36 saved')
+  })
+})
+
+describe('reading subagents on a cheaper model', () => {
+  const SPAWN = { prompt: 'Find every place the outbox is drained and list the files and functions involved.', description: 'find the drains', subagentType: 'general-purpose' }
+
+  test('a reading task runs on Sonnet and its saving is recorded from its own usage', { options: { subagent_model: 'sonnet' } }, async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.93 } }
+    world(on, w)
+    let asked = ''
+    on('agent.spawn', (_$, e) => {
+      asked = String(e.model ?? '')
+      return { model: 'claude-sonnet-5-5', agentId: 'agent-1' }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn(SPAWN)
+    expect(asked).toBe('sonnet')
+    await $.turn.complete({
+      answer: 'The outbox is drained in Engine::drain.', durationMs: 900, isAborted: false, turnId: 's1', reason: 'answer', agentId: 'agent-1',
+      usage: { model: 'claude-sonnet-5-5', input_tokens: 2000, output_tokens: 800, cache_read_input_tokens: 90000, cache_creation_input_tokens: 15000 },
+    })
+    const sent = w.stdins.find(x => x.includes('"hook":"subagent"')) ?? ''
+    expect(sent).toContain('"model":"claude-sonnet-5-5"')
+    expect(sent).toContain('"cache_read_input_tokens":90000')
+  })
+
+  test('a task jev does not read as reading, or a model the caller chose, is left alone', { options: { subagent_model: 'sonnet' } }, async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.4 } }
+    world(on, w)
+    const models: string[] = []
+    on('agent.spawn', (_$, e) => {
+      models.push(String(e.model ?? 'inherit'))
+      return { model: 'claude-fable-5-1', agentId: `a${models.length}` }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn({ ...SPAWN, prompt: 'Design the retry policy for the outbox and implement it.' })
+    await $.agent.spawn({ ...SPAWN, model: 'opus' })
+    expect(models).toEqual(['inherit', 'opus'])
+    expect(w.calls.filter(argv => argv.includes('delegate')).length).toBe(1)
+  })
+
+  test('off by default', async ($, on) => {
+    const w: World = { ...fresh(), delegate: { reading: 0.99 } }
+    world(on, w)
+    let asked = 'unset'
+    on('agent.spawn', (_$, e) => {
+      asked = String(e.model ?? 'inherit')
+      return { model: 'claude-fable-5-1', agentId: 'a1' }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await $.agent.spawn(SPAWN)
+    expect(asked).toBe('inherit')
+    expect(w.calls.some(argv => argv.includes('delegate'))).toBe(false)
   })
 })
 
 describe('the evidence line', () => {
   test('appears under a claim no command backs, not under one a test run backs', async ($, on) => {
-    world(on, fresh())
+    const w = fresh()
+    world(on, w)
     await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
 
     await $.turn.start({ text: 'fix the parser', turnId: 't1' })
     const unbacked = await $.turn.complete({ answer: 'Fixed the parser. All tests pass now and the build is green.', durationMs: 900, isAborted: false, turnId: 't1', reason: 'answer' })
     expect(unbacked.text).toContain('no test, build or lint command ran this turn')
+    expect(w.stdins.some(x => x.includes('"hook":"evidence"'))).toBe(true)
 
     await $.turn.start({ text: 'fix the parser', turnId: 't2' })
     await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
@@ -292,21 +378,61 @@ describe('the guard where no prompt can appear', () => {
   })
 })
 
-describe('routing', () => {
-  test('a routine prompt runs at low effort in effort mode', { options: { route_mode: 'effort' } }, async ($, on) => {
-    world(on, { ...fresh(), route: { routine: true, name: 'a routine change', conf: 0.95, level: 1 } })
-    let sent: unknown = undefined
-    on('turn.step', async function* (_$, e) {
-      sent = e.effort
-      return { turnId: e.turnId, index: e.index, answer: 'done', toolUses: [], stopReason: 'end_turn', usage: null } as never
-    })
-    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
-    await $.prompt.submit({ text: 'rename the helper in utils.py and fix the two call sites, nothing else' })
-    await $.turn.start({ text: 'rename the helper', turnId: 'r1' })
-    const stream = $.turn.step({ turnId: 'r1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })
-    for await (const _chunk of stream) {
+describe('low effort on routine turns', () => {
+  const SMALL_CONTEXT = { startedAt: 0, context: { window: 1000000, tokens: 60000, percent: 6 }, rateLimits: [], cost: { usd: 3.0 } }
+  const ROUTINE = { routine: true, name: 'a routine change', conf: 0.95, level: 1 }
+  const step = (turnId: string, cacheRead: number, cacheWrite: number) =>
+    ({ turnId, index: 0, answer: 'done', toolUses: [], stopReason: 'end_turn', usage: { model: 'claude-fable-5-1', input_tokens: 50, output_tokens: 200, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite } }) as never
+
+  async function turn($: any, turnId: string, prompt: string) {
+    await $.prompt.submit({ text: prompt })
+    await $.turn.start({ text: prompt, turnId })
+    for await (const _chunk of $.turn.step({ turnId, index: 0, model: 'claude-fable-5-1', messageCount: 3 })) {
       // drain
     }
-    expect(sent).toBe('low')
+    await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+  }
+
+  test('a routine prompt runs at low effort on a small context', { options: { route_mode: 'effort' } }, async ($, on) => {
+    world(on, { ...fresh(), usage: SMALL_CONTEXT, route: ROUTINE })
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      return step(e.turnId, 60000, 0)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    expect(efforts).toEqual(['low'])
+  })
+
+  test('is stopped for good when lowering effort re-wrote the cache', { options: { route_mode: 'effort' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: SMALL_CONTEXT, route: { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 } }
+    world(on, w)
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      // the first turn reads 60k from the cache; the one at low effort has to write it all again
+      return efforts.length === 1 ? step(e.turnId, 60000, 0) : step(e.turnId, 0, 60000)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r0', 'design the retry policy for the outbox and explain the trade-offs between the options')
+    w.route = ROUTINE
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    await turn($, 'r2', 'rename another helper in utils.py and fix its call sites, nothing else')
+    expect(efforts).toEqual(['default', 'low', 'default'])
+    expect((w.store.get('effort_cache') as { verdict: string }).verdict).toBe('rewrites')
+    expect(w.stdins.some(x => x.includes('"hook":"effort-cache"') && x.includes('rewrites'))).toBe(true)
+  })
+
+  test('waits for a small context before the first check', { options: { route_mode: 'effort' } }, async ($, on) => {
+    world(on, { ...fresh(), route: ROUTINE }) // the default usage reports a 290k context
+    const efforts: unknown[] = []
+    on('turn.step', async function* (_$, e) {
+      efforts.push(e.effort ?? 'default')
+      return step(e.turnId, 280000, 0)
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
+    expect(efforts).toEqual(['default'])
   })
 })
