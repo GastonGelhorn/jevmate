@@ -9,15 +9,35 @@ const SUMMARY = {
   cwd: '/work/shop',
   model: { usd: 40.0, turns: 120, ctx: 290000, ctx_size: 1000000 },
   jev: {
-    requests: 12, decisions: 1234, tokens: 900000, cached: 2, trimmed: 22000, trim_runs: 1, kept_out: 922000,
-    paid: 0.0381, would: 18.4, saved: 18.36, asked: 2, once: 9.22, reread: 9.18, share: 0.459,
-    labels: { sift: 400000, tests: 300000, 'hook:trim': 22000 },
+    requests: 12, decisions: 1234, tokens: 900000, cached: 2, reads: 700000, overhead: 200000, trimmed: 22000, trim_runs: 1, kept_out: 722000,
+    paid: 0.0381, would: 18.4, saved: 18.36, asked: 2, once: 9.22, reread: 9.18, pricing: 'per-model', share: 0.459,
+    labels: { sift: 400000, tests: 300000 }, hook_labels: { guard: 150000, screen: 50000 },
   },
+  plan: null,
+}
+
+const WINDOWS = {
+  five_hour: { used: 23.5, resets_at: '2026-10-02T14:00:00Z', rate: 0.5, kept_free: 9.2 },
+  seven_day: { used: 12, resets_at: '2026-10-05T09:00:00Z', rate: 0.05, kept_free: 0.92 },
+}
+const SUBSCRIBED = { ...SUMMARY, plan: { billing: 'subscription', windows: WINDOWS } }
+const MEASURING = {
+  ...SUMMARY,
+  plan: { billing: 'subscription', windows: { five_hour: { ...WINDOWS.five_hour, rate: null, kept_free: null }, seven_day: { ...WINDOWS.seven_day, rate: null, kept_free: null } } },
+}
+const PLAN_USAGE = {
+  startedAt: 0,
+  context: { window: 1000000, tokens: 290000, percent: 29 },
+  rateLimits: [
+    { kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-10-02T14:00:00Z' },
+    { kind: 'seven_day', percentUsed: 12, resetsAt: '2026-10-05T09:00:00Z' },
+  ],
+  cost: { usd: 40.0 },
 }
 
 const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type World = { judge?: object; route?: object; calls: string[][]; store: Map<string, unknown> }
+type World = { judge?: object; route?: object; summary?: object; usage?: object; calls: string[][]; store: Map<string, unknown> }
 
 const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], store: new Map(Object.entries(entries)) })
 
@@ -37,7 +57,7 @@ function world(on: On, w: World) {
   on('fs.exists', () => ({ value: true }))
   on('env.set', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'abcdef12-0000-0000' }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1000000, tokens: 290000, percent: 29 }, rateLimits: [], cost: { usd: 40.0 } } }))
+  on('session.usage', () => ({ value: w.usage ?? { startedAt: 0, context: { window: 1000000, tokens: 290000, percent: 29 }, rateLimits: [], cost: { usd: 40.0 } } }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
@@ -47,7 +67,7 @@ function world(on: On, w: World) {
     w.calls.push([...e.argv])
     if (e.argv.includes('guard')) return { value: ok(JSON.stringify(w.judge ?? { decision: '-', why: 'safe' })) }
     if (e.argv.includes('route')) return { value: ok(JSON.stringify(w.route ?? { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 })) }
-    return { value: ok(JSON.stringify(SUMMARY)) }
+    return { value: ok(JSON.stringify(w.summary ?? SUMMARY)) }
   })
   // What other mods would draw in the band: it has to stay under ours.
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
@@ -145,13 +165,67 @@ describe('the pane', () => {
       const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
       await pane.redraw()
       expect(await pane.find({ text: /went through jev/ })).toBeDefined()
-      expect((await pane.find({ text: /~\$18\.40/ }))?.text ?? '').toContain('to read it all yourself')
+      expect((await pane.find({ text: /~\$18\.40/ }))?.text ?? '').toContain('re-read until the next compaction')
+      expect(await pane.find({ text: /722k tokens/ })).toBeDefined()
+      expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
       expect(await pane.find({ text: /46%/ })).toBeDefined()
       expect(await pane.find({ text: /sift 400k/ })).toBeDefined()
       await pane.press({ key: 'toggle' })
       expect(w.store.get('band_collapsed')).toBe(true)
     })
   }
+})
+
+describe('on a subscription', () => {
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`the band shows the saving as a share of the 5-hour window and of the week on the ${surface}`, async ($, on) => {
+      const w: World = { ...fresh(), usage: PLAN_USAGE, summary: SUBSCRIBED }
+      world(on, w)
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      const band = await $.ui.mount({ plugin: 'jevmate', surface, component: 'AbovePrompt', props: BAND })
+      await band.redraw()
+      const text = (await band.find({ text: /saved/ }))?.text ?? ''
+      expect(text).toContain('saved 9.2% of 5h · 0.9% of the week')
+      expect(text).not.toContain('$18.36')
+      const call = w.calls.find(argv => argv.includes('--plan')) ?? []
+      expect(call).toContain('five_hour=23.5@2026-10-02T14:00:00Z')
+      expect(call).toContain('seven_day=12@2026-10-05T09:00:00Z')
+      expect(call[call.indexOf('--spent') + 1]).toBe('40')
+    })
+
+    test(`the pane draws both windows with what jev kept free on the ${surface}`, async ($, on) => {
+      world(on, { ...fresh(), usage: PLAN_USAGE, summary: SUBSCRIBED })
+      await $.session.start({ cwd: '/work/shop', surface, isInteractive: true })
+      await $.command.run({ command: 'jevmate', args: '' })
+      const pane = await $.ui.mount({ plugin: 'jevmate', surface, component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+      await pane.redraw()
+      const five = (await pane.find({ text: /5-hour window/ }))?.text ?? ''
+      expect(five).toContain('24% used')
+      expect(five).toContain('jev kept 9.2% free')
+      expect((await pane.find({ text: /^week/ }))?.text ?? '').toContain('jev kept 0.9% free')
+      expect((await pane.find({ text: /API equivalent/ }))?.text ?? '').toContain('not billed per token')
+    })
+  }
+
+  test('while the rate is still being learnt the band says so and shows the API equivalent', async ($, on) => {
+    world(on, { ...fresh(), usage: PLAN_USAGE, summary: MEASURING })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await band.redraw()
+    const text = (await band.find({ text: /saved/ }))?.text ?? ''
+    expect(text).toContain('~$18.36 API-equivalent saved')
+    expect(text).toContain('plan share: measuring')
+  })
+
+  test('off a subscription nothing about plans is sent', async ($, on) => {
+    const w: World = fresh()
+    world(on, w)
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const band = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await band.redraw()
+    expect(w.calls.some(argv => argv.includes('--plan'))).toBe(false)
+    expect((await band.find({ text: /saved/ }))?.text ?? '').toContain('~$18.36 saved')
+  })
 })
 
 describe('the evidence line', () => {
