@@ -10,7 +10,7 @@ judgment calls that repeat, and a frontier model is an expensive way to make the
 in about 250 ms for $0.04 per million tokens (or for nothing, on a local server), and this repo wraps
 it so the agent reaches for it on its own.
 
-![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/band.jpg)
+![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/line-above-the-prompt.jpg)
 
 The line above the prompt, after a session in which jev sifted 836 files three times: 2.3 million
 tokens judged for ten cents, about $23 of reading at API prices, and on a subscription a third of a
@@ -85,7 +85,7 @@ between runs, and the band to hand to a reader. `--save` keeps the winner; `--q 
 | hooks | below |
 | MCP tools | `decide`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`, for when a typed call beats a shell command |
 
-![The details pane: saved $23.09 at most, broken down into reading, trim, subagents and low effort; the 5-hour window at 64% used with 31.9% kept free by jev; the week at 35% with 5.9% kept free; safety: guard asked 8 times, 12 pages flagged, 395 checks; context 89% in use, each turn re-reads it for about $0.22](docs/img/details.jpg)
+![The details pane: saved $23.09 at most, broken down into reading, trim, subagents and low effort; the 5-hour window at 64% used with 31.9% kept free by jev; the week at 35% with 5.9% kept free; safety: guard asked 8 times, 12 pages flagged, 395 checks; context 89% in use, each turn re-reads it for about $0.22](docs/img/details-pane.jpg)
 
 The `details` pane of the same session. The saving is broken down by lever, and each lever says
 whether it is on. On a subscription no token is billed, so the dollars are an API equivalent and the
