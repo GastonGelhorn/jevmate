@@ -176,19 +176,16 @@ key; `jev config set backend http://host:port` points anywhere else. Thresholds 
 
 ## Where it pays off
 
-jev keeps text out of the context. That saves money when there is a lot of text to keep out: large
-searches, logs, test suites, long diffs, hundreds of items to sort. In a session spent writing code
-and prose there is little, and the line above the prompt says so instead of inventing a saving.
+jev keeps text out of the context, so it pays off wherever there is text to keep out: large
+searches, logs, test suites, long diffs, hundreds of items to sort. Three `jev sift` runs over a
+WordPress repository of 836 files judged 2.3 million tokens for ten cents; reading them would have
+cost about $23 at API prices, a third of a 5-hour window on a subscription. In a session spent
+writing code there is less to keep out, and the line above the prompt then shows what the hooks
+caught rather than inventing a saving.
 
-The session that built this plugin is a fair example: about $153 at list price, of which Claude's own
-output was 32%, writing the conversation into the cache 35% and reading it back 33%. Long tool
-results were about 2%, so even a perfect trim could not have saved more than that. Across the 77
-Claude Code sessions on the author's machine, 99.5% of the 29,849 command outputs were under 4,000
-tokens. What jev does in a session like that is safety: the guard, the screen and the inspection,
-for a few cents on your jev backend and nothing from your Claude plan.
-
-The two levers that touch the big slices are opt-in and measured as they run: reading subagents on a
-cheaper model (`subagent_model`), and low effort on routine turns (`route_mode: effort`).
+Two more levers reach the costs that reading does not: reading subagents on a cheaper model
+(`subagent_model`) and low effort on routine turns (`route_mode: effort`). Both are opt-in and
+measured as they run.
 
 ## Numbers
 
