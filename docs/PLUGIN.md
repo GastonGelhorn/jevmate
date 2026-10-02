@@ -77,11 +77,16 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
 it into the session; older versions ignore the field and run the hooks alone. It calls the local
 `jev` for every decision, so thresholds, the cache and the ledger stay the CLI's.
 
-- **The line above the prompt** (`band_mode`): decisions, tokens kept out, what that would have
-  cost, what was trimmed, how often the guard asked, the share of the session's cost (Claude Code's
-  own figure when it reports one) and the context in use. Refreshed after each Bash command and each
-  turn, one refresh at a time. `details` and `/jevmate` open the full `jev session` table in a pane;
-  `hide` keeps it hidden across sessions (`band_hidden` in Claude Code's store).
+- **The line above the prompt** (`band_mode`): decisions, tokens kept out, what was saved, the share
+  of the session's cost (Claude Code's own figure when it reports one), what was trimmed, how often
+  the guard asked and the context in use, colored with the theme's own keys (`claude`, `success`,
+  `warning`, `error`, `suggestion`) so it follows light and dark themes. On a narrow screen the least
+  useful numbers go first; the saving always stays. Refreshed after each Bash command and each turn,
+  one refresh at a time. `details` and `/jevmate` open the session table in a pane, with a meter for
+  the share and buttons to fold the line, refresh and close. `hide` folds the line to a chip with the
+  saving and a `show` button; `/jevmate hide` and `/jevmate show` do the same from the prompt. The
+  choice is kept across sessions (`band_collapsed` in Claude Code's store). Other mods' bands stay,
+  drawn under this one.
 - **The guard's question** (`guard_mode`): in bypassPermissions mode the PreToolUse hook holds its
   verdict for the mod instead of denying, and the mod's permission check reads it back (no second
   model call) and asks the person: "Refuse" or "Run it". `ask` asks from p >= 0.90, `strict` from
