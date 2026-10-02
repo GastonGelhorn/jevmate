@@ -39,7 +39,7 @@
     "guard_mode": {
       "type": "string",
       "title": "Bash guard",
-      "description": "ask: prompt before a command that looks destructive (p >= 0.60); where no permission prompt can appear (bypassPermissions) the mod asks you itself from p >= 0.90, and never answers allow. strict: the mod asks from p >= 0.60 there too. deny: deny at p >= 0.90 where no prompt can appear, ask nothing extra. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
+      "description": "ask: prompt before a command that looks destructive (p >= 0.60); where no permission prompt can appear (bypassPermissions) the mod asks you itself from p >= 0.90, and never answers allow. strict: the mod asks from p >= 0.60 there too. deny: deny at p >= 0.90 in every permission mode, ask nothing extra. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
       "default": "ask",
       "options": [
         "ask",
