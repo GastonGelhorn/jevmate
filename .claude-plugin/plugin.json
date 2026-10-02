@@ -1,7 +1,7 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Jev for coding agents. Triage, rank and filter hundreds of items without reading them, pick the tests a change can break, review hunks by risk, trim long command output, and see what stayed out of your context, live above the prompt. A Bash guard that asks and never allows, a screen for fetched content, an inspection of installed skills and mods. Thresholds measured, not guessed.",
   "author": {
     "name": "Gaston Gelhorn",
@@ -51,7 +51,7 @@
     "band_mode": {
       "type": "string",
       "title": "Numbers above the prompt",
-      "description": "on: one line above the prompt with what went through jev this session, what it kept out and what that saved. details (or /jevmate) opens the full table in a pane; hide folds the line to a chip, show (or /jevmate show) opens it again. off: no line. Needs Claude Code 2.1.287 or later.",
+      "description": "on: one line above the prompt with what went through jev this session, what it kept out and what that saved (on a subscription, as a share of the 5-hour window and of the week). details (or /jevmate) opens the full table in a pane; hide folds the line to a chip, show (or /jevmate show) opens it again. off: no line. Needs Claude Code 2.1.287 or later.",
       "default": "on",
       "options": [
         "on",
