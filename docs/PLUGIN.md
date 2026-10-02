@@ -1,17 +1,19 @@
 # The plugin, piece by piece
 
 ```
-.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, screen)
+.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, band, evidence, routing, screen, triage, trim, inspect)
 .claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jevmate@gastongelhorn`
 skills/jev/SKILL.md             the skill Claude invokes on its own
 skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jevmate:… for the person; never auto-invoked
 agents/band-reader.md           jevmate:band-reader, a Haiku agent that labels the uncertain band in its own context
 agents/reviewer.md              jevmate:reviewer, a Sonnet agent that reads the hunks jev diff rated risky
-hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in)
+hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in); and the mod
+hooks/jevmate.tsx               the mod (Claude Code 2.1.287+): the line above the prompt, /jevmate and its pane, the guard's question in bypass mode, the evidence line, routing
 jev/packs/core.json             ten questions with their thresholds: jev q install core
 .mcp.json                       `jev mcp`: decide, rank, sift, tests, diff, cluster, session as tools
 bin/jev                         on the Bash tool's PATH while the plugin is enabled
 evals/                          six cases for `claude plugin eval`
+tests/mod/                      the mod's tests: `claude plugin test .`
 ```
 
 ## Install
@@ -58,23 +60,51 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
   it or not and flaky or not, in one line, with the output saved for `jev cluster -i`. **Screen**:
   content fetched with curl, wget or gh is screened like WebFetch.
 - **UserPromptSubmit** (`route`, opt-in via `route_mode`): rates the prompt on a four-level rubric
-  (lookup, routine, judgment, hard). For a routine prompt at confidence >= 0.80 (`JEV_ROUTE_CONF`)
-  it adds one line suggesting a cheaper subagent or lower effort. A plugin cannot switch the
-  session's model; this is a calibrated hint. Prompts under 40 characters, slash commands and
-  attachments are skipped. It ships off: measured on 101 prompts written in Spanish over five days,
-  a 0.55 bar hinted on half of them and several were design decisions or multi-step tasks; at 0.80
-  it would have hinted on a quarter, and the sampled ones were routine. Turn it on in `/config`.
+  (lookup, routine, judgment, hard). With `route_mode: hint`, a routine prompt at confidence >= 0.80
+  (`route_conf`) gets one line suggesting a cheaper subagent or lower effort. With `effort` or
+  `model` the hook stays quiet and the mod acts instead (below). Prompts under 40 characters, slash
+  commands and attachments are skipped. It ships off: measured on 101 prompts written in Spanish
+  over five days, a 0.55 bar flagged half of them and several were design decisions or multi-step
+  tasks; at 0.80 it would have flagged a quarter, and the sampled ones were routine.
 - **Stop** (`stop`, opt-in via `honesty_mode`): when the reply reads like "the tests pass" and the
   transcript shows a test, build or lint command ran this turn, nothing happens and nothing is sent;
   when none ran, the model is asked whether the reply really claims a passed check (p >= 0.70) and,
   if so, Claude is asked to run it before stopping. Never twice in a row (`stop_hook_active`).
 
+## The mod
+
+`hooks/hooks.json` names `hooks/jevmate.tsx` under `modules`. Claude Code 2.1.287 and later load
+it into the session; older versions ignore the field and run the hooks alone. It calls the local
+`jev` for every decision, so thresholds, the cache and the ledger stay the CLI's.
+
+- **The line above the prompt** (`band_mode`): decisions, tokens kept out, what that would have
+  cost, what was trimmed, how often the guard asked, the share of the session's cost (Claude Code's
+  own figure when it reports one) and the context in use. Refreshed after each Bash command and each
+  turn, one refresh at a time. `details` and `/jevmate` open the full `jev session` table in a pane;
+  `hide` keeps it hidden across sessions (`band_hidden` in Claude Code's store).
+- **The guard's question** (`guard_mode`): in bypassPermissions mode the PreToolUse hook holds its
+  verdict for the mod instead of denying, and the mod's permission check reads it back (no second
+  model call) and asks the person: "Refuse" or "Run it". `ask` asks from p >= 0.90, `strict` from
+  p >= 0.60 and for unrequested commands, `deny` keeps the old deny. Outside bypass mode nothing
+  changes: the permission prompt is the question. A dismissed dialog refuses; so does a failure of
+  the mod while it was about to ask.
+- **The evidence line** (`evidence_line`): under a reply that says tests, a build or a check passed
+  when no test, build or lint command ran in that turn. A regular expression, no model call.
+- **Routing** (`route_mode: effort | model`): a prompt rated routine runs its turn at effort low,
+  or on `route_model`. One dim line in the transcript says so. Subagents are left alone.
+- **Other mods**: as each loads, one line when it reads a credential and reaches the network or
+  processes, answers permission checks, or writes environment variables.
+
+`claude plugin test .` runs the mod's tests on the terminal and desktop surfaces.
+
+## Project rules
+
 Project rules: `.jev/guard.json` with `{"safe": [regex…], "ask": [regex…]}`. `safe` skips the
 guard's call; `ask` asks without one. `jev hooks tune` reads the guard's asks and what followed
 (allowed, declined) and proposes this machine's ask bar once it has twenty pairs.
 
-The bars: `guard_mode`, `screen_mode`, `triage_mode`, `trim_mode`, `inspect_mode`, `route_mode`, `honesty_mode` in the plugin's
-settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
+The bars: `guard_mode`, `band_mode`, `evidence_line`, `screen_mode`, `triage_mode`, `trim_mode`, `inspect_mode`, `route_mode`,
+`route_model`, `route_conf`, `honesty_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
 decision is one JSON line in `hooks.log` (`jev hooks status`). On Windows the hook commands fall
 back to `py -3` when `python3` is not on the PATH.
 
@@ -94,7 +124,7 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
 
 ## The metric
 
-`jev session` (and `/jevmate:stats`, and `jev watch` for the desktop app's Terminal panel) shows the
+`jev session` (and the line above the prompt, `/jevmate`, `/jevmate:stats`, and `jev watch`) shows the
 session's three measured rows: what went through jev, what that text would have cost the agent to
 read (once as input, plus its re-read on later turns), and the difference, next to the session's
 model spend estimated from the transcript at list price. Attribution is exact for hook calls and,

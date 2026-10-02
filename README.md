@@ -72,7 +72,8 @@ between runs, and the band to hand to a reader. `--save` keeps the winner; `--q 
 | piece | what it is for |
 |---|---|
 | `/jevmate:sift`, `tests`, `review`, `pr`, `triage` | the same workflows as slash commands |
-| `/jevmate:stats` | what went through Jev this session, what reading it would have cost, what that saved |
+| the line above the prompt, `/jevmate` | the same numbers live while you work, and the full table in a pane |
+| `/jevmate:stats` | what went through Jev this session, what reading it would have cost, what that saved, in the chat |
 | `/jevmate:setup` | key, backend and a health check, without the key ever entering the chat |
 | `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks, so the main context pays for neither |
 | hooks | below |
@@ -84,12 +85,64 @@ session and knows what you last asked for. After a Bash command: long output tri
 that carry information (the full output stays on disk), a red test run grouped by cause with the
 quick ones named first, and content fetched with curl or gh screened for text aimed at an agent.
 After WebFetch: the same screen. At session start: skills and plugins that are new or changed are
-read for instructions aimed at an agent. Two more are off by default: a hint when a prompt reads as
-routine work, and a check before a reply claims tests passed when none ran. Everything fails open
-and logs one line per decision (`jev hooks status`, `jev hooks tune`).
+read for instructions aimed at an agent. Everything fails open and logs one line per decision
+(`jev hooks status`, `jev hooks tune`).
 
-The desktop app does not render status lines, so there the numbers live in `/jevmate:stats` and in
-`jev watch` in the Terminal panel. The terminal CLI also gets `jev statusline install`.
+On Claude Code 2.1.287 and later the plugin also ships a mod, a module that runs inside Claude Code
+itself and does what a hook command cannot:
+
+- a dim line above the prompt with this session's numbers, in the terminal and in the desktop app.
+  `details` (or `/jevmate`) opens the full table in a pane; `hide` puts it away for good;
+- in bypassPermissions mode, where no permission prompt can appear, the guard used to deny the
+  clearly destructive commands outright. Now the mod asks you in Claude's own question dialog and
+  the command runs only if you say so. It reuses the hook's verdict, so there is no second model
+  call, and it still never answers "allow" on its own;
+- a line under a reply that says tests or a build passed when no test, build or lint command ran
+  that turn. No model call and nothing blocked;
+- routing that acts instead of hinting, if you turn it on: `route_mode` set to `effort` runs a
+  prompt Jev rates as routine at low effort, `model` runs it on `route_model` (Haiku by default);
+- when another plugin's mod loads, one line if it reads a credential and reaches the network, can
+  answer permission checks or writes environment variables.
+
+On older versions the hooks work alone and the numbers live in `/jevmate:stats`, `jev watch` (the
+desktop app's Terminal panel) and `jev statusline install` (the terminal CLI).
+
+## What it sends, and where
+
+Everything goes to the one backend you configured (TypeSafe's API, OpenRouter, or a server on your
+machine) and nowhere else. Keys, tokens and passwords are masked before anything leaves, and the
+local ledger keeps metadata only. What each part sends:
+
+| part | when | what it sends |
+|---|---|---|
+| your `jev` commands, the MCP tools | when the agent or you run them | the text and the questions you pass |
+| Bash guard | before a command that is not read-only | the command, the working directory and your last prompt |
+| trim | after a command whose output passes ~8,000 tokens | the command and the chunks of output not kept by rule |
+| triage | after a failing test run | the failures and, if there is one, the current diff |
+| screen | after WebFetch, WebSearch, curl, wget or gh | the fetched text and its address |
+| inspect | at session start, for new or changed files only | the text of installed skills, agents, plugin and hook files, CLAUDE.md and AGENTS.md |
+| routing (off by default) | on each prompt you type | the prompt |
+| honesty check (off by default) | when a reply claims a check passed and none ran | the reply and the commands of that turn |
+
+The mod itself sends nothing: it runs the local `jev` command, which reads the ledger and the
+session's transcript on disk. Every part has an off switch in the plugin's settings. `SECURITY.md`
+has the rest.
+
+## Codex, OpenCode and scripts
+
+`jev` is an ordinary command, so any agent that runs shell commands can use it. `install.sh` links
+the skill into `~/.codex/skills`, `~/.agents/skills` and `~/.config/opencode/skills` when those
+folders exist. For Codex the MCP server takes three lines in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.jev]
+command = "jev"
+args = ["mcp"]
+```
+
+What stays in Claude Code: the hooks, the mod, the slash commands and the two agents. `jev session`
+and `jev watch` read Claude Code's transcripts; elsewhere `jev usage` and `jev cost` read the same
+ledger.
 
 ## Backends
 
