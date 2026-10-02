@@ -56,6 +56,7 @@ PLAN_WINDOWS = ("five_hour", "seven_day")
 PLAN_DECAY = 0.995      # per interval: the estimate follows the plan if its limits change
 PLAN_READY_USD = 2.0    # API-equivalent dollars observed before a window's rate is shown
 PLAN_KEEP_DAYS = 14
+MONEY_FLOOR = 0.50      # below this the band leads with what jev caught, not with cents
 
 
 def price_for(model: str) -> tuple[float, float, float, float]:
@@ -269,9 +270,24 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
             short = name.removeprefix("hook:")
             hook_labels[short] = hook_labels.get(short, 0) + size(r)
     would = once + reread
+    mine = [h for h in hooks if h["ts"] >= since and (not tag or h.get("agent") in (None, "", tag))]
+    kinds = lambda name: [h for h in mine if h.get("hook") == name]  # noqa: E731
+    safety = {"asked": asked,
+              "pages_flagged": sum(1 for h in kinds("screen") if h.get("warned")),
+              "files_flagged": sum(int(h.get("new_flags") or 0) for h in kinds("inspect")),
+              "triaged": sum(1 for h in kinds("triage") if h.get("noted")),
+              "claims": sum(1 for h in kinds("honesty") if h.get("blocked")) + len(kinds("evidence")),
+              "checks": sum(1 for h in mine if h.get("hook") in ("guard", "screen", "inspect", "honesty") and "err" not in h)}
+    subagents = kinds("subagent")
+    verdicts = [h for h in hooks if h.get("hook") == "effort-cache" and h.get("verdict")]
+    routing = {"subagents": len(subagents), "subagent_saved": sum(float(h.get("saved_usd") or 0) for h in subagents),
+               "subagent_spent": sum(float(h.get("spent") or 0) for h in subagents), "effort_turns": len(kinds("effort")),
+               "effort_cache": verdicts[-1]["verdict"] if verdicts else None}
+    saved = would - paid_reads
     return {"requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
-            "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": would - paid_reads, "asked": asked,
+            "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
+            "saved_total": saved + routing["subagent_saved"], "asked": asked, "safety": safety, "routing": routing,
             "pricing": pricing, "agent_price": flat if flat is not None else settings.agent_price(), "compactions": len(transcript.compactions) if transcript else 0,
             "labels": _top(labels), "hook_labels": _top(hook_labels)}
 
@@ -384,10 +400,10 @@ def session_summary(cwd: str, session_id: str | None = None, transcript: Transcr
     jev = jev_side(cwd, sid, since, tr)
     session_usd = spent if spent is not None and spent > 0 else (model["usd"] if model else None)
     if session_usd:
-        jev["share"] = jev["saved"] / session_usd
+        jev["share"] = jev["saved_total"] / session_usd
     if plan and sid:
         plan_record(sid, spent if spent is not None else (model["usd"] if model else None), plan)
-    view = plan_view(sid, jev["would"], plan) if sid else None
+    view = plan_view(sid, jev["would"] + jev["routing"]["subagent_saved"], plan) if sid else None
     return {"session": sid, "cwd": cwd, "transcript": str(tr.path) if tr else None, "since": since, "model": model, "jev": jev,
             "spent": spent, "plan": view}
 
@@ -430,8 +446,7 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         lines.append(f"  {dim}nothing decided yet this session · `jev sift`, `jev tests`, `jev cluster` … will show up here{r0}")
         return "\n".join(lines)
     lines.append(f"  {b}went through jev{r0}   {g}{j['decisions']:,} decisions{r0} over {j['tokens']:,} tokens · {j['requests']} request(s)"
-                 + (f" ({j['cached']} from cache)" if j["cached"] else "") + f" · {g}${j['paid']:.4f} paid to jev{r0}"
-                 + (f" · {y}hooks asked {j['asked']}×{r0}" if j["asked"] else ""))
+                 + (f" ({j['cached']} from cache)" if j["cached"] else ""))
     lines.append(f"  {b}kept out{r0}           {g}{j['kept_out']:,} tokens{r0} the agent did not read: {j['reads']:,} judged by jev instead"
                  + (f", {j['trimmed']:,} trimmed from command output in {j['trim_runs']} run(s)" if j.get("trimmed") else ""))
     priced = (f"at each turn's model, once as input and then as cache reads until the next compaction" if j["pricing"] == "per-model"
@@ -439,18 +454,37 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
     eq = " API-equivalent" if view else ""
     lines.append(f"  {b}would have cost{r0}    {y}~${j['would']:.2f}{r0}{eq} to read it yourself: ${j['once']:.2f} once + ${j['reread']:.2f} re-read · {dim}{priced}{r0}")
     share = f" · ≈ {100 * j['share']:.1f}% of this session" if "share" in j else ""
-    lines.append(f"  {b}saved{r0}              {g}~${j['saved']:.2f}{eq} at most{r0}{share}{dim} — minus whatever the agent read anyway from the uncertain band{r0}")
+    lines.append(f"  {b}saved{r0}              {g}~${j['saved']:.2f}{eq} at most{r0} on reading{share if not j['routing']['subagents'] else ''}"
+                 f"{dim} — minus whatever the agent read anyway from the uncertain band{r0}")
+    ro, sf = j["routing"], j["safety"]
+    if ro["subagents"]:
+        lines.append(f"  {b}subagents{r0}          {g}{ro['subagents']} ran on a cheaper model{r0} · {g}~${ro['subagent_saved']:.2f}{eq} saved{r0}"
+                     f"{dim} against the session's model, from their own usage{r0}")
+    if ro["effort_turns"] or ro["effort_cache"]:
+        verdict = {"keeps": "the prompt cache survives it", "rewrites": "it re-wrote the prompt cache, so it is off"}.get(ro["effort_cache"] or "", "the cache check is pending")
+        lines.append(f"  {b}low effort{r0}         {ro['effort_turns']} routine turn(s){dim} · {verdict}{r0}")
     if view:
         lines.append(f"  {b}plan{r0}               {g}{plan_line(view)}{r0}{dim} · "
                      + " · ".join(f"{_window_name(k)} {w['used']:g}% used" for k, w in view["windows"].items()) + f"{r0}")
+    caught = [f"guard asked {sf['asked']}×"] if sf["asked"] else []
+    caught += [f"{sf['pages_flagged']} fetched page(s) flagged"] if sf["pages_flagged"] else []
+    caught += [f"{sf['files_flagged']} instruction file(s) flagged"] if sf["files_flagged"] else []
+    caught += [f"{sf['triaged']} red run(s) sorted"] if sf["triaged"] else []
+    caught += [f"{sf['claims']} unbacked claim(s) caught"] if sf["claims"] else []
+    lines.append(f"  {b}safety{r0}             " + (f"{y}{' · '.join(caught)}{r0}" if caught else f"{dim}nothing to flag{r0}")
+                 + f"{dim} · {sf['checks']:,} checks{r0}")
     if j["labels"]:
         lines.append(f"  {b}by command{r0}         {dim}" + " · ".join(f"{k} {fmt_k(v)}" for k, v in list(j["labels"].items())[:6]) + f"{r0}")
     if j["hook_labels"]:
         lines.append(f"  {b}safety checks{r0}      {dim}" + " · ".join(f"{k} {fmt_k(v)}" for k, v in list(j["hook_labels"].items())[:5])
                      + f" · these went through jev but are not text the agent avoided reading{r0}")
+    lines.append(f"  {b}jev's own cost{r0}     ${j['paid']:.4f}{dim} on your jev backend, nothing from the Claude plan{r0}")
     if m and m["usd"] > 0:
         lines.append(f"  {dim}the session's spend is mostly the conversation itself re-sent every turn ({fmt_k(m['cache_read'])} cache-read tokens); "
                      f"jev only touches what it kept out of it{r0}")
+    if j["saved_total"] < MONEY_FLOOR:
+        lines.append(f"  {dim}jev pays off on reading-heavy work: large searches, logs, test suites, long diffs, many items to sort. "
+                     f"This session had little of it.{r0}")
     return "\n".join(lines)
 
 
@@ -459,6 +493,7 @@ def one_line(s: dict) -> str:
     j, view = s["jev"], s.get("plan")
     if not j["requests"] and not j["asked"] and not j.get("trimmed"):
         return "jev: nothing decided yet this session"
-    worth = plan_line(view) if view else f"~${j['would']:.2f} not spent (ceiling)"
-    return (f"jev: {j['decisions']:,} decisions · {fmt_k(j['kept_out'])} tokens kept out · {worth}"
-            + (f" · hooks asked {j['asked']}" if j["asked"] else "") + f" · ${j['paid']:.4f} paid")
+    sf = j["safety"]
+    worth = plan_line(view) if view else (f"~${j['saved_total']:.2f} saved" if j["saved_total"] >= MONEY_FLOOR else f"{fmt_k(j['kept_out'])} tokens kept out")
+    caught = " · ".join(x for x in (f"guard asked {sf['asked']}×" if sf["asked"] else "", f"{sf['pages_flagged']} pages flagged" if sf["pages_flagged"] else "") if x)
+    return f"jev: {j['decisions']:,} decisions · {worth}" + (f" · {caught}" if caught else "") + f" · ${j['paid']:.4f} paid"
