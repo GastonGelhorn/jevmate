@@ -14,8 +14,7 @@ opt-in honesty check. Secrets are masked in everything they send.
 The mod (Claude Code 2.1.287+): the session's numbers above the prompt, in the theme's colors, folding
 to a chip and back, and in a pane with a meter (`/jevmate`, `/jevmate show|hide`), the
 guard's question where no permission prompt can appear, a line under a reply that claims a check
-passed when none ran, routing that lowers the effort or changes the model of a routine turn, and a
-note when another mod reaches for credentials or permissions.
+passed when none ran, and a note when another mod reaches for credentials or permissions.
 
 The session metric: only text that stood in for the agent's reading counts as kept out (the hooks are
 listed apart as safety checks); each piece is priced at the model of the turn that would have read
