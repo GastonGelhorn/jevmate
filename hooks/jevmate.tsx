@@ -40,6 +40,8 @@ type JevSide = {
   decisions: number
   tokens: number
   cached: number
+  reads?: number
+  overhead?: number
   trimmed: number
   trim_runs: number
   kept_out: number
@@ -49,14 +51,19 @@ type JevSide = {
   asked: number
   once?: number
   reread?: number
+  pricing?: 'per-model' | 'flat'
   labels?: Record<string, number>
+  hook_labels?: Record<string, number>
   share?: number
 }
+// A plan window as jev reads it: points used now, and the points the kept-out text would have taken.
+type PlanWindow = { used: number; resets_at: string | null; rate: number | null; kept_free: number | null }
 type Summary = {
   session: string | null
   cwd?: string
   model: { usd: number; turns: number; ctx: number; ctx_size: number } | null
   jev: JevSide
+  plan?: { billing: 'subscription'; windows: { five_hour?: PlanWindow; seven_day?: PlanWindow } } | null
 }
 // One styled run of text, and a group of them that the band keeps or drops as a whole.
 type Piece = { text: string; color?: string; bold?: true; dim?: true }
@@ -99,6 +106,16 @@ const n = (x: number) => x.toLocaleString('en-US')
 const money = (x: number) => (x >= 100 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`)
 const pct = (x: number) => `${Math.round(100 * Math.min(1, Math.max(0, x)))}%`
 const length = (pieces: Piece[]) => pieces.reduce((sum, p) => sum + p.text.length, 0)
+// Points of a plan window: 2.1%, <0.1%, or 1.4× past a whole window.
+const points = (x: number) => (x >= 100 ? `${(x / 100).toFixed(1)}×` : x < 0.1 ? '<0.1%' : `${x.toFixed(1)}%`)
+const two = (x: number) => String(x).padStart(2, '0')
+function resets(iso: string | null, withDay: boolean): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]
+  return ` · resets ${withDay ? `${day} ` : ''}${two(d.getHours())}:${two(d.getMinutes())}`
+}
 
 // Props for a Text from a Piece, with no undefined values in them.
 function style(p: Piece): { color?: string; bold?: true; dimColor?: true } {
@@ -160,21 +177,28 @@ async function refresh($: Api) {
 
 async function refreshNow($: Api) {
   const before = summary
-  const r = await jev($, ['session', '--json', '--compact', '--session', sessionId, '--cwd', cwd])
+  // Claude Code's own figures go along: the session's cost as /cost totals it, and on a subscription the
+  // 5-hour and weekly windows, from which jev learns how much of a window a dollar of use takes.
+  const args = ['session', '--json', '--compact', '--session', sessionId, '--cwd', cwd]
+  try {
+    const u = await $.session.usage()
+    ctxPct = u.context.percent !== undefined ? Math.round(u.context.percent) : null
+    sessionUsd = u.cost?.usd ?? null
+    if (sessionUsd !== null) args.push('--spent', String(sessionUsd))
+    for (const w of u.rateLimits) {
+      if (w.kind === 'five_hour' || w.kind === 'seven_day') args.push('--plan', `${w.kind}=${w.percentUsed}${w.resetsAt ? `@${w.resetsAt}` : ''}`)
+    }
+  } catch {
+    ctxPct = null
+    sessionUsd = null
+  }
+  const r = await jev($, args)
   if (r && r.exitCode === 0) {
     try {
       summary = JSON.parse(r.stdout) as Summary
     } catch {
       // a partial line: keep the previous numbers
     }
-  }
-  try {
-    const u = await $.session.usage()
-    ctxPct = u.context.percent !== undefined ? Math.round(u.context.percent) : null
-    sessionUsd = u.cost?.usd ?? null
-  } catch {
-    ctxPct = null
-    sessionUsd = null
   }
   const now = new Date(await $.clock.now())
   refreshedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -215,9 +239,30 @@ function segments(): Segment[] {
   } else {
     out.push({ key: 'decisions', rank: 6, pieces: [{ text: n(j.decisions), bold: true }, { text: ' decisions', dim: true }] })
     out.push({ key: 'kept', rank: 5, pieces: [{ text: k(j.kept_out), bold: true, color: INFO }, { text: ' tokens kept out', dim: true }] })
-    out.push({ key: 'saved', rank: 9, pieces: [{ text: `~${money(j.saved)}`, bold: true, color: GOOD }, { text: ' saved', dim: true }] })
-    const s = spent()
-    if (s) out.push({ key: 'share', rank: 4, pieces: [{ text: pct(j.saved / s.usd), color: GOOD }, { text: ' of the session', dim: true }] })
+    const plan = summary?.plan?.windows
+    const five = plan?.five_hour?.kept_free
+    const week = plan?.seven_day?.kept_free
+    if (plan && (five !== null && five !== undefined) && (week !== null && week !== undefined)) {
+      out.push({
+        key: 'saved',
+        rank: 9,
+        pieces: [
+          { text: 'saved ', dim: true },
+          { text: points(five), bold: true, color: GOOD },
+          { text: ' of 5h', dim: true },
+          { text: ' · ', dim: true },
+          { text: points(week), bold: true, color: GOOD },
+          { text: ' of the week', dim: true },
+        ],
+      })
+    } else if (plan) {
+      out.push({ key: 'saved', rank: 9, pieces: [{ text: `~${money(j.saved)}`, bold: true, color: GOOD }, { text: ' API-equivalent saved', dim: true }] })
+      out.push({ key: 'measuring', rank: 1, pieces: [{ text: 'plan share: measuring', dim: true }] })
+    } else {
+      out.push({ key: 'saved', rank: 9, pieces: [{ text: `~${money(j.saved)}`, bold: true, color: GOOD }, { text: ' saved', dim: true }] })
+      const s = spent()
+      if (s) out.push({ key: 'share', rank: 4, pieces: [{ text: pct(j.saved / s.usd), color: GOOD }, { text: ' of the session', dim: true }] })
+    }
     if (j.trimmed) out.push({ key: 'trimmed', rank: 2, pieces: [{ text: k(j.trimmed), color: INFO }, { text: ' trimmed', dim: true }] })
     if (j.asked) out.push({ key: 'asked', rank: 7, pieces: [{ text: `guard asked ${j.asked}×`, color: WARN }] })
   }
@@ -382,7 +427,13 @@ export const register: Register = (on, options) => {
     const theirs = await next(e) // what other mods draw here stays, under ours
     const j = summary?.jev
     if (collapsed) {
-      const chip: Piece = isIdle(j) || !j ? { text: ' ready', dim: true } : { text: ` ~${money(j.saved)} saved`, color: GOOD }
+      const five = summary?.plan?.windows?.five_hour?.kept_free
+      const chip: Piece =
+        isIdle(j) || !j
+          ? { text: ' ready', dim: true }
+          : five !== null && five !== undefined
+            ? { text: ` ${points(five)} of 5h saved`, color: GOOD }
+            : { text: ` ~${money(j.saved)} saved`, color: GOOD }
       return (
         <Box flexDirection="column">
           <Box flexDirection="row">
@@ -461,10 +512,28 @@ export const register: Register = (on, options) => {
     const share = s ? Math.min(1, j.saved / s.usd) : null
     const bar = Math.max(10, Math.min(36, e.props.bodyColumns - LABEL - 8))
     const filled = share === null ? 0 : Math.round(share * bar)
-    const top = Object.entries(j.labels ?? {})
-      .slice(0, 4)
-      .map(([name, tokens]) => `${name} ${k(tokens)}`)
-      .join(' · ')
+    const top = (labels: Record<string, number> | undefined, count: number) =>
+      Object.entries(labels ?? {})
+        .slice(0, count)
+        .map(([name, tokens]) => `${name} ${k(tokens)}`)
+        .join(' · ')
+    const plan = summary?.plan?.windows
+    // A plan window as a bar: what is used, then what the kept-out text would have taken on top of it.
+    const windowRow = (label: string, w: PlanWindow | undefined, withDay: boolean) => {
+      if (!w) return row(label, [{ text: 'not reported', dim: true }])
+      const used = Math.min(bar, Math.round((w.used / 100) * bar))
+      const kept = w.kept_free === null ? 0 : Math.min(bar - used, Math.max(w.kept_free > 0 ? 1 : 0, Math.round((w.kept_free / 100) * bar)))
+      return row(label, [
+        { text: '█'.repeat(used), ...(w.used >= 80 ? { color: BAD } : w.used >= 60 ? { color: WARN } : { color: INFO }) },
+        { text: '█'.repeat(kept), color: GOOD },
+        { text: '░'.repeat(bar - used - kept), dim: true },
+        { text: ` ${Math.round(w.used)}% used`, bold: true },
+        w.kept_free === null
+          ? { text: ' · measuring what a dollar of use takes', dim: true }
+          : { text: ` · jev kept ${points(w.kept_free)} free`, color: GOOD },
+        { text: resets(w.resets_at, withDay), dim: true },
+      ])
+    }
     return (
       <Box flexDirection="column">
         {header}
@@ -473,33 +542,36 @@ export const register: Register = (on, options) => {
           { text: `${n(j.decisions)} decisions`, bold: true },
           { text: ` over ${k(j.tokens)} tokens · ${n(j.requests)} request${j.requests === 1 ? '' : 's'}${j.cached ? `, ${j.cached} from cache` : ''}`, dim: true },
         ])}
-        {j.trimmed
-          ? row('trimmed', [
-              { text: `${k(j.trimmed)} tokens`, bold: true, color: INFO },
-              { text: ` of command output kept out in ${j.trim_runs} run${j.trim_runs === 1 ? '' : 's'}`, dim: true },
-            ])
-          : row('trimmed', [{ text: 'nothing long enough yet', dim: true }])}
+        {row('kept out', [
+          { text: `${k(j.kept_out)} tokens`, bold: true, color: INFO },
+          { text: ` the agent did not read: ${k(j.reads ?? j.kept_out)} judged by jev`, dim: true },
+          ...(j.trimmed ? [{ text: `, ${k(j.trimmed)} trimmed from command output`, dim: true } as Piece] : []),
+        ])}
         {row('would have cost', [
           { text: `~${money(j.would)}`, bold: true, color: WARN },
-          { text: j.once !== undefined ? ` to read it all yourself: ${money(j.once)} once, ${money(j.reread ?? 0)} re-read later` : ' to read it all yourself', dim: true },
+          { text: `${plan ? ' API-equivalent' : ''} to read it yourself: ${money(j.once ?? j.would)} once, ${money(j.reread ?? 0)} re-read until the next compaction`, dim: true },
         ])}
         {row('saved', [
           { text: `~${money(j.saved)}`, bold: true, color: GOOD },
-          { text: ` at most, after ${money(j.paid)} paid to jev`, dim: true },
+          { text: plan ? ' at most · a subscription is not billed per token, so this is an API equivalent' : ` at most, after ${money(j.paid)} paid to jev`, dim: true },
         ])}
-        {share !== null && s
+        {plan ? windowRow('5-hour window', plan.five_hour, false) : null}
+        {plan ? windowRow('week', plan.seven_day, true) : null}
+        {!plan && share !== null && s
           ? row('', [
               { text: '█'.repeat(filled), color: GOOD },
               { text: '░'.repeat(bar - filled), dim: true },
               { text: ` ${pct(share)}`, bold: true, color: GOOD },
               { text: ` of the session's ${s.estimated ? '~' : ''}${money(s.usd)}`, dim: true },
             ])
-          : row('', [{ text: 'the session cost is not known yet', dim: true }])}
+          : null}
+        {!plan && share === null ? row('', [{ text: 'the session cost is not known yet', dim: true }]) : null}
         {row('guard', j.asked ? [{ text: `asked ${j.asked}×`, bold: true, color: WARN }, { text: ' this session', dim: true }] : [{ text: 'nothing to ask about yet', dim: true }])}
         {ctxPct !== null
           ? row('context', [{ text: `${ctxPct}%`, bold: true, ...(ctxPct >= 80 ? { color: BAD } : ctxPct >= 60 ? { color: WARN } : {}) }, { text: ' in use', dim: true }])
           : row('context', [{ text: 'unknown', dim: true }])}
-        {top ? row('by command', [{ text: top, dim: true }]) : row('by command', [{ text: '—', dim: true }])}
+        {row('by command', [{ text: top(j.labels, 4) || 'nothing yet: sift, rank, tests, diff and cluster show up here', dim: true }])}
+        {top(j.hook_labels, 4) ? row('safety checks', [{ text: `${top(j.hook_labels, 4)} · through jev, not text the agent avoided reading`, dim: true }]) : null}
         <Text> </Text>
         {controls}
         <Text> </Text>
