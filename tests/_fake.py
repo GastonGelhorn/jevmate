@@ -14,6 +14,12 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("TYPESAFE_API_KEY", "test-key-0000000000000000")
 
+# Fake OpenRouter-shaped keys, assembled at run time so that no file in the repo holds a key-shaped literal.
+_OR = "sk-or-" + "v1-"
+FAKE_OR_KEY = _OR + "0123456789abcdef" * 2
+FAKE_OR_KEY_2 = _OR + "abcdef" * 4
+FAKE_OR_KEY_3 = _OR + "abcdefghijklmnopqrstuvwxyz" + "0123456789"
+
 from jev import settings  # noqa: E402
 
 

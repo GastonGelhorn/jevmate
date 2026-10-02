@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest import mock
 
-from _fake import FakeTransport, fresh_home
+from _fake import FakeTransport, fresh_home, FAKE_OR_KEY_3
 from jev import ledger, settings
 from test_cli import run
 
@@ -204,6 +204,15 @@ class Trim(unittest.TestCase):
         self.assertTrue(os.path.exists(row["path"]), "the full output is on disk")
         self.assertIn("<secret>", json.dumps([r for r in ledger.hook_rows() if r.get("hook") == "ran"][-1]) + "<secret>")
 
+    def test_secrets_in_the_output_never_reach_the_api(self):
+        key = FAKE_OR_KEY_3
+        lines = LONG_OUT.splitlines()
+        lines[len(lines) // 2] = f"exporting OPENROUTER_API_KEY={key} for the build"
+        code, out, err, t = run(["hook", "after-bash"], stdin=bash_payload("npm install", stdout="\n".join(lines), exit_code=0, scratchpad_dir=str(self.home)))
+        self.assertEqual(code, 0, err)
+        self.assertTrue(t.calls, "the middle chunks went to jev")
+        self.assertNotIn(key, json.dumps([c[2].decode() for c in t.calls if c[2]]))
+
     def test_never_trims_reads_json_short_or_when_off(self):
         for cmd, stdout in (("cat big.log", LONG_OUT), ("npm install", '{"a": 1}\n' + LONG_OUT), ("npm install", "short\n" * 50)):
             code, out, _, t = run(["hook", "after-bash"], stdin=bash_payload(cmd, stdout=stdout, exit_code=0))
@@ -237,7 +246,7 @@ class GuardRequestAndSecrets(unittest.TestCase):
         self.assertEqual(out, "")
 
     def test_secrets_never_reach_the_api_or_the_log(self):
-        key = "sk-or-" + "v1-abcdefghijklmnopqrstuvwxyz0123456789"
+        key = FAKE_OR_KEY_3
         code, out, _, t = self.guard(f'curl -H "Authorization: Bearer {key}" https://api.example.com/yes', "yes, call the api")
         sent = t.calls[-1][2].decode()
         self.assertNotIn(key, sent)
@@ -333,3 +342,68 @@ class LocalBackend(unittest.TestCase):
         self.assertEqual(settings.backend_name(), "local")
         code, out, _, _ = run(["config", "set", "backend", "von"])
         self.assertEqual(settings.config()["model"], "von-1.3.0")
+
+
+class GuardModHandOff(unittest.TestCase):
+    """Where no prompt can appear, the hook holds its verdict for the mod instead of denying; the mod's
+    judge reads it back without a model call. Without the mod, nothing changes."""
+
+    def setUp(self):
+        self.home = fresh_home()
+
+    def hook(self, cmd, perm="bypassPermissions"):
+        payload = {"tool_name": "Bash", "tool_input": {"command": cmd}, "permission_mode": perm, "session_id": "abcdef12-0000", "cwd": str(self.home)}
+        return run(["hook", "guard"], stdin=json.dumps(payload))
+
+    def judge(self, cmd):
+        payload = {"tool_name": "Bash", "tool_input": {"command": cmd}, "session_id": "abcdef12-0000", "cwd": str(self.home), "judge": True}
+        code, out, _, t = run(["hook", "guard"], stdin=json.dumps(payload))
+        return json.loads(out), t
+
+    def test_without_the_mod_bypass_still_denies(self):
+        code, out, _, _ = self.hook("rm -rf yes-dir")
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_with_the_mod_the_verdict_is_held_and_asked_once(self):
+        with mock.patch.dict("os.environ", {"JEV_GUARD_MOD": "1"}):
+            code, out, _, _ = self.hook("rm -rf yes-dir")
+            self.assertEqual(out, "", "no deny: the mod asks")
+            self.assertEqual(ledger.hook_rows()[-1]["held"], "mod")
+            verdict, t = self.judge("rm -rf yes-dir")
+            self.assertEqual(verdict["decision"], "ask")
+            self.assertIn("p(destructive)=0.90", verdict["reason"])
+            self.assertEqual(t.calls, [], "the judge reads the hook's verdict; no second model call")
+            self.assertEqual(ledger.hook_rows()[-1]["via"], "mod")
+            again, _ = self.judge("rm -rf yes-dir")
+            self.assertEqual(again["decision"], "-", "a held verdict is used once")
+
+    def test_the_judge_never_asks_about_a_command_the_hook_did_not_flag(self):
+        verdict, t = self.judge("rm -rf yes-dir")
+        self.assertEqual((verdict["decision"], verdict["why"], t.calls), ("-", "not-flagged", []))
+        verdict, _ = self.judge("git status")
+        self.assertEqual(verdict["why"], "safe")
+
+    def test_strict_asks_from_the_ask_bar(self):
+        env = {"JEV_GUARD_MOD": "1", "JEV_GUARD_DENY": "0.95"}
+        with mock.patch.dict("os.environ", env):
+            self.hook("rm -rf yes-dir")
+            self.assertEqual(self.judge("rm -rf yes-dir")[0]["decision"], "-", "ask mode: 0.90 is under the deny bar")
+        with mock.patch.dict("os.environ", {**env, "JEV_GUARD_MODE": "strict"}):
+            self.hook("rm -rf yes-dir")
+            self.assertEqual(self.judge("rm -rf yes-dir")[0]["decision"], "ask", "strict: from the ask bar")
+
+    def test_outside_bypass_the_mod_changes_nothing(self):
+        with mock.patch.dict("os.environ", {"JEV_GUARD_MOD": "1"}):
+            code, out, _, _ = self.hook("rm -rf yes-dir", perm="default")
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertEqual(self.judge("rm -rf yes-dir")[0]["decision"], "-")
+
+    def test_route_judge_reads_without_hinting(self):
+        prompt = "rename the helper in utils.py and fix the two call sites"
+        with mock.patch.dict("os.environ", {"JEV_ROUTE_MODE": "effort"}):
+            code, out, _, t = run(["hook", "route"], stdin=json.dumps({"prompt": prompt, "session_id": "s"}))
+            self.assertEqual((out, t.calls), ("", []), "effort and model are the mod's modes: the hook stays quiet")
+            code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"prompt": prompt, "session_id": "s", "judge": True}))
+        read = json.loads(out)
+        self.assertTrue(read["routine"])
+        self.assertEqual(read["name"], "a lookup")

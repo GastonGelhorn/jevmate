@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest import mock
 
-from _fake import FakeTransport, fresh_home
+from _fake import FakeTransport, fresh_home, FAKE_OR_KEY, FAKE_OR_KEY_2
 from jev import settings
 from jev.cli import COMMANDS, build_parser, main
 
@@ -242,7 +242,7 @@ class Commands(unittest.TestCase):
 
     def test_auth_backend_detection_and_config_backend(self):
         home = settings.HOME
-        code, out, _, _ = run(["auth", "set", "sk-or-" + "v1-0123456789abcdef0123456789abcdef"])
+        code, out, _, _ = run(["auth", "set", FAKE_OR_KEY])
         self.assertEqual(code, 0, out)
         self.assertIn("backend openrouter", out)
         self.assertEqual(settings.config()["base_url"], "https://openrouter.ai/api")
@@ -259,7 +259,7 @@ class Commands(unittest.TestCase):
     def test_hook_session_start_tags_and_configures(self):
         home = settings.HOME
         env_file = home / "env.sh"
-        env = {"CLAUDE_ENV_FILE": str(env_file), "CLAUDE_PLUGIN_OPTION_API_KEY": "sk-or-" + "v1-abcdefabcdefabcdefabcdef", "CLAUDE_PLUGIN_OPTION_BACKEND": ""}
+        env = {"CLAUDE_ENV_FILE": str(env_file), "CLAUDE_PLUGIN_OPTION_API_KEY": FAKE_OR_KEY_2, "CLAUDE_PLUGIN_OPTION_BACKEND": ""}
         payload = {"session_id": "deadbeef-1234", "source": "startup", "cwd": str(home), "transcript_path": str(home / "t.jsonl"), "hook_event_name": "SessionStart"}
         with mock.patch.dict("os.environ", env):
             code, out, _, _ = run(["hook", "session-start"], stdin=json.dumps(payload))
@@ -269,7 +269,7 @@ class Commands(unittest.TestCase):
         self.assertEqual(out2, "", "no context line on resume")
         self.assertEqual(env_file.read_text().count("JEV_SESSION"), 1, "written once")
         self.assertIn('export JEV_SESSION="session:deadbeef"', env_file.read_text())
-        self.assertEqual(settings.KEY_FILE.read_text().strip(), "sk-or-" + "v1-abcdefabcdefabcdefabcdef")
+        self.assertEqual(settings.KEY_FILE.read_text().strip(), FAKE_OR_KEY_2)
         self.assertEqual(settings.config()["base_url"], "https://openrouter.ai/api")
         marker = json.loads((settings.SESSIONS_DIR / "deadbeef-1234.json").read_text())
         self.assertEqual(marker["transcript"], str(home / "t.jsonl"))
