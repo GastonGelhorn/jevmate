@@ -3,7 +3,7 @@
     ~/.local/bin/jev              the launcher (bin/jev in the repo)
     ~/.local/share/jev/jev/       the package; `import jev` after sys.path.insert(0, "~/.local/share/jev")
     ~/.local/share/jev-skill/     SKILL.md, symlinked into ~/.claude/skills/jev (and Codex, OpenCode dirs that exist)
-    ~/.config/jev/                api_key (0600), config.json, usage.jsonl, hooks.log, cache/, sessions/
+    ~/.config/jev/                api_key (0600), config.json, usage.jsonl, hooks.log, plan.json, cache/, sessions/, questions/
                                   (JEV_HOME overrides; an existing ~/.config/typesafe is used when ~/.config/jev is absent)
 
 `install.sh` verifies `SHA256SUMS` and refuses on a mismatch, so the files you audited are the

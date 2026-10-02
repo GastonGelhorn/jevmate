@@ -21,8 +21,8 @@ command to run. `--errors N` lists the most confident errors: the model is sure 
 disagrees, and on the 80 commits those were the author's own ambiguous prefixes. Check the
 labels before blaming the model.
 
-A held-out check: the threshold found on 80 rows (0.42) transferred to 80 fresh rows from other
-repositories at the same accuracy (78.8% on both). Pick the phrasing and threshold once, pin the
+A held-out check: the threshold found on 80 rows (0.42), applied unchanged to 80 fresh rows (28
+from sibling repositories, 52 older commits), scored 78.8%. Pick the phrasing and threshold once, pin the
 model (`--model jev-1.13.0`), and stop re-asking: the cache makes iteration free, and a fresh
 call buys jitter, not information.
 
