@@ -139,7 +139,7 @@ def cmd_hooks(args) -> int:
         print(f"  screen (PostToolUse WebFetch -> note)  {'installed' if have['PostToolUse'] else 'not installed'}")
         print(f"  command: {launcher()} hook guard|screen   (the plugin wires its own copy; do not install both)")
         print("  env: JEV_GUARD_ASK=0.60 JEV_GUARD_DENY=0.90 JEV_GUARD_MODE=ask|deny|off · JEV_SCREEN_WARN=0.55 JEV_SCREEN_MODE=on|off")
-        print("       JEV_TRIM_MODE=on|off JEV_TRIM_MIN=8000 (tokens) · JEV_TRIAGE_MODE=on|off · JEV_INSPECT_MODE=on|off · JEV_ROUTE_MODE=off|on · JEV_HONESTY_MODE=off|on")
+        print("       JEV_TRIM_MODE=on|off JEV_TRIM_MIN=4000 (tokens) · JEV_TRIAGE_MODE=on|off · JEV_INSPECT_MODE=on|off · JEV_ROUTE_MODE=off|on · JEV_HONESTY_MODE=off|on")
         rows = ledger.hook_rows(None)
         if rows:
             g = [r for r in rows if r.get("hook") == "guard"]
