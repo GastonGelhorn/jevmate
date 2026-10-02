@@ -70,14 +70,16 @@ type JevSide = {
   routing?: Routing
   share?: number
 }
-// A plan window as jev reads it: points used now, and the points the kept-out text would have taken.
-type PlanWindow = { used: number; resets_at: string | null; rate: number | null; kept_free: number | null }
+// A plan window as jev reads it: points used when Claude Code last read it, and the points the kept-out text would have taken.
+type PlanWindow = { label?: string; used: number; resets_at: string | null; as_of?: string; rate: number | null; kept_free: number | null }
+type Subagents = { count: number; cost: number; models: Record<string, number>; could_save: number; read_only: number }
 type Summary = {
   session: string | null
   cwd?: string
-  model: { usd: number; turns: number; ctx: number; ctx_size: number } | null
+  model: { usd: number; turns: number; ctx: number; ctx_size: number; carry?: number; last_model?: string } | null
   jev: JevSide
-  plan?: { billing: 'subscription'; windows: { five_hour?: PlanWindow; seven_day?: PlanWindow } } | null
+  plan?: { billing: 'subscription'; windows: Record<string, PlanWindow>; missing?: string[] } | null
+  subagents?: Subagents
 }
 // One styled run of text, and a group of them that the band keeps or drops as a whole.
 type Piece = { text: string; color?: string; bold?: true; dim?: true }
@@ -97,7 +99,7 @@ type Routed = { parent: string; model: string; kind: string }
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
 // Module state. A reload starts it over; nothing here is worth keeping past that.
-let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off' }
+let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off', trimMode: 'on' }
 let optionEnv: Record<string, string> = {}
 let sessionId = ''
 let cwd = ''
@@ -227,9 +229,8 @@ async function refreshNow($: Api) {
     ctxTokens = u.context.tokens ?? null
     sessionUsd = u.cost?.usd ?? null
     if (sessionUsd !== null) args.push('--spent', String(sessionUsd))
-    for (const w of u.rateLimits) {
-      if (w.kind === 'five_hour' || w.kind === 'seven_day') args.push('--plan', `${w.kind}=${w.percentUsed}${w.resetsAt ? `@${w.resetsAt}` : ''}`)
-    }
+    // Every window Claude Code reports: the 5-hour one, the week, and on some plans a week per model.
+    for (const w of u.rateLimits) args.push('--plan', `${w.kind}=${w.percentUsed}${w.resetsAt ? `@${w.resetsAt}` : ''}`)
   } catch {
     ctxPct = null
     sessionUsd = null
@@ -295,22 +296,18 @@ function segments(): Segment[] {
     out.push({ key: 'idle', rank: 9, pieces: [{ text: 'ready', color: GOOD }, { text: ' · nothing decided yet this session', dim: true }] })
   } else {
     const plan = summary?.plan?.windows
-    const five = plan?.five_hour?.kept_free
-    const week = plan?.seven_day?.kept_free
+    const shares = [
+      { w: plan?.five_hour, name: ' of 5h' },
+      { w: plan?.seven_day, name: ' of the week' },
+    ].filter(x => x.w && x.w.kept_free !== null && x.w.kept_free !== undefined)
     const worth = savedTotal(j) >= MONEY_FLOOR
-    if (worth && plan && five !== null && five !== undefined && week !== null && week !== undefined) {
-      out.push({
-        key: 'saved',
-        rank: 9,
-        pieces: [
-          { text: 'saved ', dim: true },
-          { text: points(five), bold: true, color: GOOD },
-          { text: ' of 5h', dim: true },
-          { text: ' · ', dim: true },
-          { text: points(week), bold: true, color: GOOD },
-          { text: ' of the week', dim: true },
-        ],
+    if (worth && plan && shares.length) {
+      const pieces: Piece[] = [{ text: 'saved ', dim: true }]
+      shares.forEach((x, i) => {
+        if (i) pieces.push({ text: ' · ', dim: true })
+        pieces.push({ text: points(x.w?.kept_free ?? 0), bold: true, color: GOOD }, { text: x.name, dim: true })
       })
+      out.push({ key: 'saved', rank: 9, pieces })
     } else if (worth) {
       out.push({ key: 'saved', rank: 9, pieces: [{ text: `~${money(savedTotal(j))}`, bold: true, color: GOOD }, { text: plan ? ' API-equivalent saved' : ' saved', dim: true }] })
       const s = spent()
@@ -327,7 +324,8 @@ function segments(): Segment[] {
   }
   if (ctxPct !== null) {
     const tone: Piece = ctxPct >= 80 ? { text: `${ctxPct}%`, color: BAD, bold: true } : ctxPct >= 60 ? { text: `${ctxPct}%`, color: WARN } : { text: `${ctxPct}%`, dim: true }
-    out.push({ key: 'ctx', rank: 1, pieces: [{ text: 'ctx ', dim: true }, tone] })
+    const carry = summary?.model?.carry ?? 0
+    out.push({ key: 'ctx', rank: 2, pieces: [{ text: 'ctx ', dim: true }, tone, ...(carry >= 0.05 ? [{ text: ` · ${money(carry)}/turn`, dim: true } as Piece] : [])] })
   }
   return out
 }
@@ -441,6 +439,7 @@ export const register: Register = (on, options) => {
     routeMode: route === 'model' ? 'hint' : route, // off · hint · effort; a main turn's model is not switched (its cache would be re-written)
     routeConf: Number(opt('route_conf', '0.80')) || 0.8,
     subagentModel: opt('subagent_model', 'off'), // off · sonnet · haiku
+    trimMode: opt('trim_mode', 'on'),
   }
   // The plugin's options reach the jev process the way Claude Code hands them to a hook command.
   optionEnv = {}
@@ -538,14 +537,14 @@ export const register: Register = (on, options) => {
     const theirs = await next(e) // what other mods draw here stays, under ours
     const j = summary?.jev
     if (collapsed) {
-      const five = summary?.plan?.windows?.five_hour?.kept_free
+      const five = summary?.plan?.windows?.five_hour?.kept_free ?? summary?.plan?.windows?.seven_day?.kept_free
       const worth = j && !isIdle(j) && savedTotal(j) >= MONEY_FLOOR
       const first = j && !isIdle(j) ? caught(j)[0] : undefined
       const chip: Piece[] =
         !j || isIdle(j)
           ? [{ text: ' ready', dim: true }]
           : worth && five !== null && five !== undefined
-            ? [{ text: ` ${points(five)} of 5h saved`, color: GOOD }]
+            ? [{ text: ` ${points(five)} of ${summary?.plan?.windows?.five_hour?.kept_free !== undefined && summary?.plan?.windows?.five_hour?.kept_free !== null ? '5h' : 'the week'} saved`, color: GOOD }]
             : worth
               ? [{ text: ` ~${money(savedTotal(j))} saved`, color: GOOD }]
               : first
@@ -629,64 +628,77 @@ export const register: Register = (on, options) => {
         .join(' · ')
     const plan = summary?.plan?.windows
     // A plan window: what is used, then what the kept-out text would have taken on top of it (a bar on the terminal).
-    const windowRow = (label: string, w: PlanWindow | undefined, withDay: boolean) => {
-      if (!w) return row(label, [{ text: 'not reported', dim: true }])
+    const windowRow = (kind: string, w: PlanWindow) => {
       const used = Math.min(bar, Math.round((w.used / 100) * bar))
       const kept = w.kept_free === null ? 0 : Math.min(bar - used, Math.max(w.kept_free > 0 ? 1 : 0, Math.round((w.kept_free / 100) * bar)))
       const tone = w.used >= 80 ? { color: BAD } : w.used >= 60 ? { color: WARN } : { color: INFO }
       const meter: Piece[] = terminal
         ? [{ text: '█'.repeat(used), ...tone }, { text: '█'.repeat(kept), color: GOOD }, { text: `${'░'.repeat(bar - used - kept)} `, dim: true }]
         : []
-      return row(label, [
+      return row(w.label || kind, [
         ...meter,
         { text: `${Math.round(w.used)}% used`, bold: true, ...tone },
         w.kept_free === null ? { text: ' · measuring what a dollar of use takes', dim: true } : { text: ` · jev kept ${points(w.kept_free)} free`, color: GOOD },
-        { text: resets(w.resets_at, withDay), dim: true },
+        { text: `${resets(w.resets_at, kind !== 'five_hour')}${w.as_of ? ` · as of ${w.as_of}` : ''}`, dim: true },
       ])
     }
     const sf = caught(j)
     const ro = j.routing
+    const sub = summary?.subagents
     const filled = share === null ? 0 : Math.round(share * bar)
+    const trimOn = cfg.trimMode !== 'off'
+    const subagentOn = cfg.subagentModel === 'sonnet' || cfg.subagentModel === 'haiku'
+    const effortOn = cfg.routeMode === 'effort'
+    const models = sub ? Object.entries(sub.models).map(([m, count]) => `${count} on ${shortModel(m)}`).join(', ') : ''
     return (
       <Box flexDirection="column">
         {header}
         <Text> </Text>
-        {row('kept out', [
-          { text: `${k(j.kept_out)} tokens`, bold: true, color: INFO },
-          { text: ` the agent did not read: ${k(j.reads ?? j.kept_out)} judged by jev`, dim: true },
-          ...(j.trimmed ? [{ text: `, ${k(j.trimmed)} trimmed from command output`, dim: true } as Piece] : []),
-        ])}
-        {row('would have cost', [
-          { text: `~${money(j.would)}`, bold: true, color: WARN },
-          { text: `${plan ? ' API-equivalent' : ''} to read it yourself: ${money(j.once ?? j.would)} once, ${money(j.reread ?? 0)} re-read until the next compaction`, dim: true },
-        ])}
-        {ro && ro.subagents
-          ? row('subagents', [
-              { text: `${plural(ro.subagents, 'subagent')} on a cheaper model`, bold: true, color: INFO },
-              { text: ` · ~${money(ro.subagent_saved)} saved against the session's model, from their own usage`, dim: true },
-            ])
-          : null}
-        {ro && (ro.effort_turns || ro.effort_cache)
-          ? row('low effort', [
-              { text: plural(ro.effort_turns, 'routine turn'), bold: true },
-              {
-                text: ro.effort_cache === 'keeps' ? ' · the prompt cache survives it' : ro.effort_cache === 'rewrites' ? ' · it re-wrote the prompt cache, so it is off' : ' · checking the prompt cache first',
-                dim: true,
-              },
-            ])
-          : null}
         {row('saved', [
           { text: `~${money(total)}`, bold: true, color: GOOD },
           { text: plan ? ' at most · a subscription is not billed per token, so this is an API equivalent' : ' at most', dim: true },
+          ...(!plan && share !== null && s ? [{ text: ` · ${pct(share)} of the session's ${s.estimated ? '~' : ''}${money(s.usd)}`, dim: true } as Piece] : []),
         ])}
-        {plan ? windowRow('5-hour window', plan.five_hour, false) : null}
-        {plan ? windowRow('week', plan.seven_day, true) : null}
-        {!plan && share !== null && s
-          ? row('', [
-              ...(terminal ? [{ text: '█'.repeat(filled), color: GOOD } as Piece, { text: `${'░'.repeat(bar - filled)} `, dim: true } as Piece] : []),
-              { text: pct(share), bold: true, color: GOOD },
-              { text: ` of the session's ${s.estimated ? '~' : ''}${money(s.usd)}`, dim: true },
-            ])
+        {!plan && share !== null && s && terminal
+          ? row('', [{ text: '█'.repeat(filled), color: GOOD }, { text: '░'.repeat(bar - filled), dim: true }])
+          : null}
+        {row('  reading', [
+          { text: `~${money(j.saved)}`, color: GOOD },
+          { text: ` · ${k(j.reads ?? j.kept_out)} tokens judged by jev instead of read · ${money(j.once ?? j.would)} once, ${money(j.reread ?? 0)} re-read until the next compaction`, dim: true },
+        ])}
+        {row('  trim', [
+          { text: trimOn ? 'on' : 'off', bold: true, ...(trimOn ? { color: GOOD } : {}) },
+          j.trimmed
+            ? { text: ` · ${k(j.trimmed)} tokens of command output kept out in ${plural(j.trim_runs, 'run')}`, dim: true }
+            : { text: trimOn ? ' · no command output over ~4k tokens yet' : ' · long command output reaches the context whole', dim: true },
+        ])}
+        {row('  subagents', [
+          { text: subagentOn ? `on, ${cfg.subagentModel}` : 'off', bold: true, ...(subagentOn ? { color: GOOD } : {}) },
+          ro && ro.subagents
+            ? { text: ` · ${plural(ro.subagents, 'subagent')} moved to a cheaper model · ~${money(ro.subagent_saved)} saved, from their own usage`, dim: true }
+            : sub && sub.count
+              ? sub.could_save >= 0.01
+                ? { text: ` · ${plural(sub.count, 'subagent')} ran (${models}) · ~${money(sub.could_save)} less on Sonnet`, color: WARN }
+                : { text: ` · ${plural(sub.count, 'subagent')} ran (${models}) · nothing to gain from a cheaper model`, dim: true }
+              : { text: ' · no subagents this session', dim: true },
+        ])}
+        {row('  low effort', [
+          { text: effortOn ? 'on' : 'off', bold: true, ...(effortOn ? { color: GOOD } : {}) },
+          {
+            text:
+              ro && ro.effort_turns
+                ? ` · ${plural(ro.effort_turns, 'routine turn')}${ro.effort_cache === 'keeps' ? ' · the prompt cache survives it' : ro.effort_cache === 'rewrites' ? ' · it re-wrote the prompt cache, so it stopped' : ''}`
+                : effortOn
+                  ? effortCache === 'rewrites'
+                    ? ' · stopped: lowering effort re-writes the prompt cache on this build'
+                    : ' · waits for a routine prompt on a context under 100k tokens to check the cache'
+                  : ' · routine turns run at the session effort',
+            dim: true,
+          },
+        ])}
+        {plan ? Object.entries(plan).map(([kind, w]) => windowRow(kind, w)) : null}
+        {plan && summary?.plan?.missing?.includes('five_hour')
+          ? row('5-hour window', [{ text: 'no reading yet · Claude Code reports it with its next request', dim: true }])
           : null}
         {row(
           'safety',
@@ -698,7 +710,13 @@ export const register: Register = (on, options) => {
             : [{ text: `nothing to flag · ${n(j.safety?.checks ?? 0)} checks`, dim: true }],
         )}
         {ctxPct !== null
-          ? row('context', [{ text: `${ctxPct}%`, bold: true, ...(ctxPct >= 80 ? { color: BAD } : ctxPct >= 60 ? { color: WARN } : {}) }, { text: ' in use', dim: true }])
+          ? row('context', [
+              { text: `${ctxPct}%`, bold: true, ...(ctxPct >= 80 ? { color: BAD } : ctxPct >= 60 ? { color: WARN } : {}) },
+              { text: ' in use', dim: true },
+              ...((summary?.model?.carry ?? 0) >= 0.01
+                ? [{ text: ` · each turn re-reads it: ~${money(summary?.model?.carry ?? 0)}${summary?.model?.last_model ? ` on ${shortModel(summary.model.last_model)}` : ''}`, color: WARN } as Piece]
+                : []),
+            ])
           : null}
         {row('by command', [{ text: top(j.labels, 4) || 'nothing yet: sift, rank, tests, diff and cluster show up here', dim: true }])}
         {top(j.hook_labels, 4) ? row('safety checks', [{ text: `${top(j.hook_labels, 4)} · not text the agent avoided reading`, dim: true }]) : null}
