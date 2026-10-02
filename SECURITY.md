@@ -14,7 +14,8 @@ you pass it. The hooks send, on their own:
 - inspect: at session start, the text of installed skills, agents, plugin and hook files,
   CLAUDE.md and AGENTS.md that are new or changed since the last look;
 - routing and the honesty check, both off by default: the prompt you typed, or the reply and the
-  commands of that turn.
+  commands of that turn;
+- subagent routing, off by default: the task of a subagent Claude starts without choosing its model.
 
 Tokens, keys and passwords (`key=…`, bearer headers and the common key shapes) are replaced with
 `<secret>` before any of this is sent or logged. `--dry-run` prints the request any command would

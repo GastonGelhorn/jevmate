@@ -49,7 +49,7 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
   p >= 0.55 one line of context says the text reads like instructions aimed at an agent.
 - **PostToolUse and PostToolUseFailure on Bash** (`after-bash`): records that the command ran (the
   guard's memory: an identical command is not asked about twice in a session; `jev hooks tune`
-  reads the pairs). **Trim**: output above ~8,000 tokens (`JEV_TRIM_MIN`) from a command that is not
+  reads the pairs). **Trim**: output above ~4,000 tokens (`JEV_TRIM_MIN`) from a command that is not
   a read (cat, grep, git diff …) and not JSON is cut to what carries information: the first and last
   chunks and any chunk with an error or warning stay by rule, the rest is judged one chunk at a time,
   dropped runs become one marker line, the full output is saved to disk and the first line says
@@ -61,8 +61,8 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
   content fetched with curl, wget or gh is screened like WebFetch.
 - **UserPromptSubmit** (`route`, opt-in via `route_mode`): rates the prompt on a four-level rubric
   (lookup, routine, judgment, hard). With `route_mode: hint`, a routine prompt at confidence >= 0.80
-  (`route_conf`) gets one line suggesting a cheaper subagent or lower effort. With `effort` or
-  `model` the hook stays quiet and the mod acts instead (below). Prompts under 40 characters, slash
+  (`route_conf`) gets one line suggesting a cheaper subagent or lower effort. With `effort` the hook
+  stays quiet and the mod acts instead (below). The old `model` value now reads as `hint`. Prompts under 40 characters, slash
   commands and attachments are skipped. It ships off: measured on 101 prompts written in Spanish
   over five days, a 0.55 bar flagged half of them and several were design decisions or multi-step
   tasks; at 0.80 it would have flagged a quarter, and the sampled ones were routine.
@@ -77,7 +77,10 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
 it into the session; older versions ignore the field and run the hooks alone. It calls the local
 `jev` for every decision, so thresholds, the cache and the ledger stay the CLI's.
 
-- **The line above the prompt** (`band_mode`): decisions, tokens kept out, what was saved, the share
+- **The line above the prompt** (`band_mode`): it leads with value in its own units. A saving of 50
+  cents or more shows as money (or, on a subscription, as a share of the 5-hour window and of the
+  week); below that, what the hooks caught (questions asked, pages and instruction files flagged, red
+  runs sorted, unbacked claims) and the tokens kept out. Its other figures: decisions, tokens kept out, the share
   of the session's cost (Claude Code's own figure when it reports one), what was trimmed, how often
   the guard asked and the context in use, colored with the theme's own keys (`claude`, `success`,
   `warning`, `error`, `suggestion`) so it follows light and dark themes. On a narrow screen the least
@@ -95,8 +98,19 @@ it into the session; older versions ignore the field and run the hooks alone. It
   the mod while it was about to ask.
 - **The evidence line** (`evidence_line`): under a reply that says tests, a build or a check passed
   when no test, build or lint command ran in that turn. A regular expression, no model call.
-- **Routing** (`route_mode: effort | model`): a prompt rated routine runs its turn at effort low,
-  or on `route_model`. One dim line in the transcript says so. Subagents are left alone.
+- **Low effort on routine turns** (`route_mode: effort`): a prompt rated routine runs its turn at
+  effort low, decided at the turn's first request and kept for the rest of it. Lowering effort is free
+  only if Claude Code keeps the prompt cache across the change, so the mod checks: until it knows, it
+  lowers effort only when the context is under 100k tokens, and it compares the first request after
+  each change with the one before (a quick follow-up only, since a cache can also expire by age). If
+  the request read the conversation from the cache, the change is free from then on; if it wrote it
+  again, effort routing stops for good on that Claude Code build. The verdict is kept per version. The
+  main turn's model is never switched: a model's cache does not carry to another.
+- **Reading subagents on a cheaper model** (`subagent_model: sonnet | haiku`, off by default): when
+  Claude starts a subagent without choosing its model, the parent is a costlier tier, and jev reads
+  the task as reading, searching, listing or summarizing (p >= 0.85), the subagent runs on that model.
+  When it finishes, its own usage is priced at both models and the difference counts as saved. The
+  plugin's own agents and forks are left alone.
 - **Other mods**: as each loads, one line when it reads a credential and reaches the network or
   processes, answers permission checks, or writes environment variables.
 
@@ -109,7 +123,7 @@ guard's call; `ask` asks without one. `jev hooks tune` reads the guard's asks an
 (allowed, declined) and proposes this machine's ask bar once it has twenty pairs.
 
 The bars: `guard_mode`, `band_mode`, `evidence_line`, `screen_mode`, `triage_mode`, `trim_mode`, `inspect_mode`, `route_mode`,
-`route_model`, `route_conf`, `honesty_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
+`route_conf`, `subagent_model`, `honesty_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
 decision is one JSON line in `hooks.log` (`jev hooks status`). On Windows the hook commands fall
 back to `py -3` when `python3` is not on the PATH.
 

@@ -137,3 +137,39 @@ cache key; accented text shrinks by about a third.
 
 `jev watch` reads the session transcript incrementally (only the bytes appended since its last
 refresh), so a 10 MB transcript is parsed once, not every five seconds.
+
+## Where a session's money goes (2026-10-02)
+
+The session that built this plugin, priced per model at list price from its transcript: about $153
+over 468 main-thread turns on Fable 5.1, Opus 5 and Opus 5.5, with two compactions.
+
+| part | estimate | share |
+|---|---|---|
+| Claude's output | $48.37 | 31.6% |
+| writing the conversation into the cache | $53.74 | 35.1% |
+| reading it back from the cache | $51.00 | 33.3% |
+| plain input | $0.08 | 0.1% |
+
+Tool results that passed 4,000 tokens from Bash, Grep, Glob, WebFetch, WebSearch and MCP tools: 15,
+for 89,827 tokens. Carried until the next compaction at each turn's model, they cost $2.87: about 2% of
+the session, the ceiling for anything that only trims. Of the long Bash outputs, six were file
+reads, which trim never touches.
+
+Before this measurement the session view counted the safety hooks' own requests as text kept out of
+the context and priced every turn at one model with no regard for compactions; it reported a saving of
+about the whole session. It now counts only reads that replaced the agent's own, and the hooks apart.
+
+## Output sizes and the trim floor (2026-10-02)
+
+Across the 77 Claude Code transcripts on the author's machine: 29,849 Bash results; 29,715 under 4,000
+tokens, 125 between 4,000 and 8,000 (30 of them file reads), 9 at 8,000 or more (2 file reads). A floor
+of 8,000 trimmed 7 outputs in that history.
+
+Trim at a floor of 4,000, run with the live backend over 40 of those outputs that were neither file
+reads nor JSON: 7 were cut, 85% of all lines were kept, and of the 828 lines that carry a signal (an
+error or warning, a test or build result, a count, a path) 2 were dropped, both documentation prose.
+The default is now 4,000. The other 33 were left alone, mostly because Jev judged every chunk worth
+keeping or because fewer than 40 lines would have gone.
+
+The check that a command reads files now looks past `cd dir &&`, `X=1;` and `set -e;` in front of it:
+before, `cd repo && sed -n 1,450p file` was not recognized as a read.

@@ -92,17 +92,24 @@ On Claude Code 2.1.287 and later the plugin also ships a mod, a module that runs
 itself and does what a hook command cannot:
 
 - a line above the prompt with this session's numbers, in your theme's colors, in the terminal and
-  in the desktop app. On a subscription the saving reads as a share of your 5-hour window and of the
-  week. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a small chip,
-  and `show` (or `/jevmate show`) opens it again;
+  in the desktop app. It leads with what jev did in its own units: a saving when there is one worth
+  showing (on a subscription, as a share of your 5-hour window and of the week), and otherwise what
+  the hooks caught. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a
+  small chip, and `show` (or `/jevmate show`) opens it again;
 - in bypassPermissions mode, where no permission prompt can appear, the guard used to deny the
   clearly destructive commands outright. Now the mod asks you in Claude's own question dialog and
   the command runs only if you say so. It reuses the hook's verdict, so there is no second model
   call, and it still never answers "allow" on its own;
 - a line under a reply that says tests or a build passed when no test, build or lint command ran
   that turn. No model call and nothing blocked;
-- routing that acts instead of hinting, if you turn it on: `route_mode` set to `effort` runs a
-  prompt Jev rates as routine at low effort, `model` runs it on `route_model` (Haiku by default);
+- reading subagents on a cheaper model, if you turn it on: with `subagent_model` set to `sonnet` or
+  `haiku`, a subagent Claude starts without choosing a model, whose task jev reads as reading,
+  searching or summarizing, runs on that model. A subagent has its own context, so the main
+  conversation's cache is untouched, and its saving is priced from its own usage;
+- low effort on routine turns, if you turn it on (`route_mode: effort`). It first checks, on a small
+  context, whether lowering effort keeps the prompt cache on your Claude Code build, and stops for
+  good if it does not. The main turn's model is never switched: a model's cache does not carry to
+  another, so switching would re-write the whole conversation at the new model's price;
 - when another plugin's mod loads, one line if it reads a credential and reaches the network, can
   answer permission checks or writes environment variables.
 
@@ -119,12 +126,13 @@ local ledger keeps metadata only. What each part sends:
 |---|---|---|
 | your `jev` commands, the MCP tools | when the agent or you run them | the text and the questions you pass |
 | Bash guard | before a command that is not read-only | the command, the working directory and your last prompt |
-| trim | after a command whose output passes ~8,000 tokens | the command and the chunks of output not kept by rule |
+| trim | after a command whose output passes ~4,000 tokens | the command and the chunks of output not kept by rule |
 | triage | after a failing test run | the failures and, if there is one, the current diff |
 | screen | after WebFetch, WebSearch, curl, wget or gh | the fetched text and its address |
 | inspect | at session start, for new or changed files only | the text of installed skills, agents, plugin and hook files, CLAUDE.md and AGENTS.md |
 | routing (off by default) | on each prompt you type | the prompt |
 | honesty check (off by default) | when a reply claims a check passed and none ran | the reply and the commands of that turn |
+| subagent routing (off by default) | when Claude starts a subagent without choosing its model | the subagent's task |
 
 The mod itself sends nothing: it runs the local `jev` command, which reads the ledger and the
 session's transcript on disk. Every part has an off switch in the plugin's settings. `SECURITY.md`
@@ -153,6 +161,22 @@ TypeSafe's hosted API, OpenRouter, or any server that answers the same `/v1/syst
 key; `jev config set backend http://host:port` points anywhere else. Thresholds are per model, so run
 `jev tune` again after switching.
 
+## Where it pays off
+
+jev keeps text out of the context. That saves money when there is a lot of text to keep out: large
+searches, logs, test suites, long diffs, hundreds of items to sort. In a session spent writing code
+and prose there is little, and the line above the prompt says so instead of inventing a saving.
+
+The session that built this plugin is a fair example: about $153 at list price, of which Claude's own
+output was 32%, writing the conversation into the cache 35% and reading it back 33%. Long tool
+results were about 2%, so even a perfect trim could not have saved more than that. Across the 77
+Claude Code sessions on the author's machine, 99.5% of the 29,849 command outputs were under 4,000
+tokens. What jev does in a session like that is safety: the guard, the screen and the inspection,
+for a few cents on your jev backend and nothing from your Claude plan.
+
+The two levers that touch the big slices are opt-in and measured as they run: reading subagents on a
+cheaper model (`subagent_model`), and low effort on routine turns (`route_mode: effort`).
+
 ## Numbers
 
 Everything in the defaults was measured; `docs/MEASUREMENTS.md` has the tables and dates. The short
@@ -160,7 +184,8 @@ version: one question went from 63.8% to 76.2% accuracy by moving the threshold 
 by position in a long list were wrong 27% of the time and items embedded in their own question 0%;
 identical requests jitter by about ±0.02; the confident answers of a 76% question were all right and
 the errors all sat in the band. A 1,300-line `npm install` came out of the trim hook as 47 lines with
-the warning and the summary intact.
+the warning and the summary intact; with trim starting at 4,000 tokens, 40 real outputs lost 2 of
+their 828 lines that carry a signal, both of them documentation prose.
 
 ## Layout
 
