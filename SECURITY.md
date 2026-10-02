@@ -8,7 +8,7 @@ you pass it. The hooks send, on their own:
 - the Bash guard: the command, the working directory and your most recent prompt, before any
   command that is not read-only;
 - trim: the command and the chunks of its output that are not kept by rule, when the output passes
-  about 8,000 tokens;
+  about 4,000 tokens;
 - triage: the failures of a red test run and, when there is one, the current git diff;
 - screen: text fetched by WebFetch, WebSearch, curl, wget or gh, and its address;
 - inspect: at session start, the text of installed skills, agents, plugin and hook files,
