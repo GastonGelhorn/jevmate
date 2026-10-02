@@ -1,10 +1,11 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.4.1",
-  "description": "Jev for coding agents. Triage, rank and filter hundreds of items without reading them, pick the tests a change can break, review hunks by risk, trim long command output, and see what stayed out of your context. A Bash guard that asks and never allows, a screen for fetched content, an inspection of installed skills. Thresholds measured, not guessed.",
+  "version": "1.5.0",
+  "description": "Jev for coding agents. Triage, rank and filter hundreds of items without reading them, pick the tests a change can break, review hunks by risk, trim long command output, and see what stayed out of your context, live above the prompt. A Bash guard that asks and never allows, a screen for fetched content, an inspection of installed skills and mods. Thresholds measured, not guessed.",
   "author": {
-    "name": "Gaston Gelhorn"
+    "name": "Gaston Gelhorn",
+    "email": "gastongelhorn@gmail.com"
   },
   "homepage": "https://github.com/GastonGelhorn/jevmate",
   "repository": "https://github.com/GastonGelhorn/jevmate",
@@ -38,8 +39,34 @@
     "guard_mode": {
       "type": "string",
       "title": "Bash guard",
-      "description": "ask: prompt before a command that looks destructive (p >= 0.60). deny: also deny at p >= 0.90 where no prompt can appear. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
-      "default": "ask"
+      "description": "ask: prompt before a command that looks destructive (p >= 0.60); where no permission prompt can appear (bypassPermissions) the mod asks you itself from p >= 0.90, and never answers allow. strict: the mod asks from p >= 0.60 there too. deny: deny at p >= 0.90 where no prompt can appear, ask nothing extra. off: no guard. A command you already let run this session is not asked about again; .jev/guard.json in a project adds safe / ask patterns.",
+      "default": "ask",
+      "options": [
+        "ask",
+        "strict",
+        "deny",
+        "off"
+      ]
+    },
+    "band_mode": {
+      "type": "string",
+      "title": "Numbers above the prompt",
+      "description": "on: one dim line above the prompt with what went through jev this session, what it kept out and what that saved, with a details button that opens the full table (also /jevmate). off: no line. Needs Claude Code 2.1.287 or later.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "evidence_line": {
+      "type": "string",
+      "title": "Evidence line under a reply",
+      "description": "on: when a reply says a test, build or check passed and no test, build or lint command ran this turn, one line under the reply says so. No model call, nothing blocked. off: nothing.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
     },
     "screen_mode": {
       "type": "string",
@@ -55,9 +82,27 @@
     },
     "route_mode": {
       "type": "string",
-      "title": "Routing hint (opt-in)",
-      "description": "on: rate each prompt (lookup / routine / judgment / hard) and, for a routine one at confidence >= 0.80 (JEV_ROUTE_CONF), hint that a cheaper subagent or lower effort is enough. off (default): nothing. Measured on 101 Spanish prompts: at 0.55 half got a hint and several were design decisions, so it ships off.",
-      "default": "off"
+      "title": "Routing (opt-in)",
+      "description": "Rates each prompt (lookup / routine / judgment / hard). hint: for a routine one at confidence >= route_conf, a line of context suggests a cheaper subagent or lower effort. effort: the turn runs at effort low instead. model: the turn runs on route_model instead. off (default): nothing. Measured on 101 Spanish prompts: at 0.55 half were rated routine and several were design decisions, so the bar is 0.80 and it ships off.",
+      "default": "off",
+      "options": [
+        "off",
+        "hint",
+        "effort",
+        "model"
+      ]
+    },
+    "route_model": {
+      "type": "string",
+      "title": "Model for routine prompts",
+      "description": "With route_mode = model: the model a routine prompt's turn runs on, an alias (haiku, sonnet) or a full model id.",
+      "default": "haiku"
+    },
+    "route_conf": {
+      "type": "string",
+      "title": "Routing confidence bar",
+      "description": "A prompt counts as routine only at or above this confidence. 0.80 measured; lower means more prompts routed, including some that were not routine.",
+      "default": "0.80"
     },
     "honesty_mode": {
       "type": "string",

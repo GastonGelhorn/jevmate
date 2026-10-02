@@ -1,17 +1,18 @@
 {
   "name": "gastongelhorn",
   "owner": {
-    "name": "Gaston Gelhorn"
+    "name": "Gaston Gelhorn",
+    "email": "gastongelhorn@gmail.com"
   },
   "metadata": {
     "description": "jevmate: Jev for coding agents",
-    "version": "1.4.1"
+    "version": "1.5.0"
   },
   "plugins": [
     {
       "name": "jevmate",
       "source": "./",
-      "description": "Jev for coding agents: triage, test selection, review by risk, output trimming, a Bash guard and a fetch screen, with measured thresholds.",
+      "description": "Jev for coding agents: triage, test selection, review by risk, output trimming, a Bash guard and a fetch screen, the session's numbers above the prompt, with measured thresholds.",
       "category": "productivity",
       "tags": [
         "decisions",
