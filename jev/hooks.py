@@ -254,7 +254,8 @@ def _judge(mode: str, cmd: str) -> int:
     asks = why == "project-rule" or pd >= deny_at or (strict and (pd >= ask_at or why == "unrequested"))
     if asks:
         ledger.log_hook("guard", {"cmd": shown[:200], "p": round(pd, 3), "mode": "bypassPermissions", "decision": "ask", "via": "mod", **({"why": why} if why else {})})
-    return out(decision="ask" if asks else "-", why=why, p=round(pd, 3), ask_at=ask_at, deny_at=deny_at, reason=entry.get("reason"))
+    return out(decision="ask" if asks else "-", why=why, p=round(pd, 3), outside=entry.get("outside"), requested=entry.get("requested"),
+               ask_at=ask_at, deny_at=deny_at, reason=entry.get("reason"))
 
 
 def guard() -> int:
@@ -318,7 +319,8 @@ def guard() -> int:
     unrequested = pr is not None and pd >= 0.45 and pr <= 0.25  # somewhat risky, and nobody asked for it
     decision, why, held = None, ("unrequested" if unrequested and pd < ask_at else None), False
     if mod and (pd >= ask_at or unrequested):
-        _save_pending(shown, {"p": round(pd, 3), "why": why, "reason": _guard_reason(pd, po, pr, shown, "ask")})
+        _save_pending(shown, {"p": round(pd, 3), "outside": round(po, 3), "requested": None if pr is None else round(pr, 3), "why": why,
+                              "reason": _guard_reason(pd, po, pr, shown, "ask")})
         held = True
     elif pd >= deny_at and (mode == "deny" or perm == "bypassPermissions"):
         decision = "deny"
