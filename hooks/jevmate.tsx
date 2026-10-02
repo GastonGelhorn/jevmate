@@ -27,6 +27,14 @@ const CREDENTIAL = /(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|CREDENTIAL|PRIVATE_KE
 const PANE = 'jev'
 const COMMANDS = ['jevmate', 'jev-session'] as const
 
+// Theme keys, so the colors follow the person's theme, light or dark, terminal or desktop.
+const ACCENT = 'claude'
+const GOOD = 'success'
+const WARN = 'warning'
+const BAD = 'error'
+const INFO = 'suggestion'
+const LABEL = 18 // the pane's label column
+
 type JevSide = {
   requests: number
   decisions: number
@@ -39,18 +47,25 @@ type JevSide = {
   would: number
   saved: number
   asked: number
+  once?: number
+  reread?: number
+  labels?: Record<string, number>
   share?: number
 }
 type Summary = {
   session: string | null
+  cwd?: string
   model: { usd: number; turns: number; ctx: number; ctx_size: number } | null
   jev: JevSide
 }
+// One styled run of text, and a group of them that the band keeps or drops as a whole.
+type Piece = { text: string; color?: string; bold?: true; dim?: true }
+type Segment = { key: string; rank: number; pieces: Piece[] }
 type Judge = {
   decision: string
   why?: string | null
   p?: number
-  outside?: number
+  outside?: number | null
   requested?: number | null
   ask_at?: number
   deny_at?: number
@@ -66,11 +81,11 @@ let cwd = ''
 let canAsk = false
 let launcher: string[] | null = null
 let summary: Summary | null = null
-let usageLine = ''
+let ctxPct: number | null = null
 let sessionUsd: number | null = null
-let hidden = false
+let refreshedAt = ''
+let collapsed = false
 let paneOpen = false
-let paneText = ''
 let lastPrompt = ''
 let turnCommands: string[] = []
 let pendingRoute: Route | null = null
@@ -81,6 +96,18 @@ let refreshAgain = false
 
 const k = (x: number) => (x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : x >= 1000 ? `${Math.round(x / 1000)}k` : String(x))
 const n = (x: number) => x.toLocaleString('en-US')
+const money = (x: number) => (x >= 100 ? `$${Math.round(x).toLocaleString('en-US')}` : `$${x.toFixed(2)}`)
+const pct = (x: number) => `${Math.round(100 * Math.min(1, Math.max(0, x)))}%`
+const length = (pieces: Piece[]) => pieces.reduce((sum, p) => sum + p.text.length, 0)
+
+// Props for a Text from a Piece, with no undefined values in them.
+function style(p: Piece): { color?: string; bold?: true; dimColor?: true } {
+  const out: { color?: string; bold?: true; dimColor?: true } = {}
+  if (p.color) out.color = p.color
+  if (p.bold) out.bold = true
+  if (p.dim) out.dimColor = true
+  return out
+}
 
 async function launch($: Api): Promise<string[]> {
   if (launcher) return launcher
@@ -109,11 +136,6 @@ function commandOf(input: unknown): string {
 
 function lastLine(stdout: string | undefined): string {
   return (stdout ?? '').trim().split('\n').pop() ?? ''
-}
-
-async function refreshPane($: Api) {
-  const r = await jev($, ['session', '--plain', '--session', sessionId, '--cwd', cwd])
-  if (r && r.exitCode === 0 && r.stdout.trim()) paneText = r.stdout.trimEnd()
 }
 
 // At most one refresh in flight and one queued behind it, however many tool calls finish meanwhile.
@@ -148,46 +170,73 @@ async function refreshNow($: Api) {
   }
   try {
     const u = await $.session.usage()
-    usageLine = u.context.percent !== undefined ? ` · ctx ${u.context.percent.toFixed(0)}%` : ''
+    ctxPct = u.context.percent !== undefined ? Math.round(u.context.percent) : null
     sessionUsd = u.cost?.usd ?? null
   } catch {
-    usageLine = ''
+    ctxPct = null
     sessionUsd = null
   }
+  const now = new Date(await $.clock.now())
+  refreshedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   const trimmed = (summary?.jev.trimmed ?? 0) - (before?.jev.trimmed ?? 0)
   if (before && trimmed > 0) $.ui.log(`jev trimmed ~${k(trimmed)} tokens of that output; the full text is on disk`)
-  if (paneOpen) await refreshPane($)
   $.ui.invalidate('ui.render')
 }
 
 async function openPane($: Api) {
   paneOpen = true
-  await refreshPane($)
-  await $.ui.open({ id: PANE, title: 'jev session', closeOnEscape: true })
+  await $.ui.open({ id: PANE, title: 'jev', closeOnEscape: true })
+  void refresh($)
+}
+
+// The line above the prompt never disappears by a press: hide folds it to a chip that brings it back.
+function setCollapsed($: Api, value: boolean) {
+  collapsed = value
+  $.store.set('band_collapsed', value).catch(() => undefined)
   $.ui.invalidate('ui.render')
 }
 
-function hideBand($: Api) {
-  hidden = true
-  $.store.set('band_hidden', true).catch(() => undefined)
-  $.ui.invalidate('ui.render')
+function spent(): { usd: number; estimated: boolean } | null {
+  if (sessionUsd !== null && sessionUsd > 0) return { usd: sessionUsd, estimated: false }
+  const usd = summary?.model?.usd
+  return usd && usd > 0 ? { usd, estimated: true } : null
 }
 
-function bandLine(columns: number): string {
+function isIdle(j: JevSide | undefined): boolean {
+  return !j || (!j.requests && !j.asked && !j.trimmed)
+}
+
+// The band's groups in the order they read, each with a rank: the lowest ranks go first when it is narrow.
+function segments(): Segment[] {
   const j = summary?.jev
-  if (!j || (!j.requests && !j.asked && !j.trimmed)) return `jev · nothing decided yet this session${usageLine}`
-  const parts = [`jev · ${n(j.decisions)} decisions`, `${k(j.kept_out)} tokens kept out`, `~$${j.would.toFixed(2)} not spent`]
-  if (j.trimmed) parts.push(`${k(j.trimmed)} trimmed`)
-  if (j.asked) parts.push(`guard asked ${j.asked}×`)
-  const spent = sessionUsd ?? summary?.model?.usd ?? null
-  if (spent && spent > 0) parts.push(`≈ ${Math.min(999, (100 * j.saved) / spent).toFixed(0)}% of this session's ${sessionUsd === null ? '~' : ''}$${spent.toFixed(2)}`)
-  parts.push(`$${j.paid.toFixed(4)} paid`)
-  let line = parts.join(' · ') + usageLine
-  while (line.length > Math.max(40, columns - 18) && parts.length > 3) {
-    parts.pop()
-    line = parts.join(' · ') + usageLine
+  const out: Segment[] = []
+  if (isIdle(j) || !j) {
+    out.push({ key: 'idle', rank: 9, pieces: [{ text: 'ready', color: GOOD }, { text: ' · nothing decided yet this session', dim: true }] })
+  } else {
+    out.push({ key: 'decisions', rank: 6, pieces: [{ text: n(j.decisions), bold: true }, { text: ' decisions', dim: true }] })
+    out.push({ key: 'kept', rank: 5, pieces: [{ text: k(j.kept_out), bold: true, color: INFO }, { text: ' tokens kept out', dim: true }] })
+    out.push({ key: 'saved', rank: 9, pieces: [{ text: `~${money(j.saved)}`, bold: true, color: GOOD }, { text: ' saved', dim: true }] })
+    const s = spent()
+    if (s) out.push({ key: 'share', rank: 4, pieces: [{ text: pct(j.saved / s.usd), color: GOOD }, { text: ' of the session', dim: true }] })
+    if (j.trimmed) out.push({ key: 'trimmed', rank: 2, pieces: [{ text: k(j.trimmed), color: INFO }, { text: ' trimmed', dim: true }] })
+    if (j.asked) out.push({ key: 'asked', rank: 7, pieces: [{ text: `guard asked ${j.asked}×`, color: WARN }] })
   }
-  return line
+  if (ctxPct !== null) {
+    const tone: Piece = ctxPct >= 80 ? { text: `${ctxPct}%`, color: BAD, bold: true } : ctxPct >= 60 ? { text: `${ctxPct}%`, color: WARN } : { text: `${ctxPct}%`, dim: true }
+    out.push({ key: 'ctx', rank: 3, pieces: [{ text: 'ctx ', dim: true }, tone] })
+  }
+  return out
+}
+
+function fit(segs: Segment[], room: number): Segment[] {
+  const kept = [...segs]
+  const width = () => kept.reduce((sum, s) => sum + length(s.pieces), 0) + 3 * Math.max(0, kept.length - 1)
+  while (kept.length > 1 && width() > room) {
+    let low = 0
+    for (let i = 1; i < kept.length; i++) if (kept[i].rank < kept[low].rank) low = i
+    kept.splice(low, 1)
+  }
+  return kept
 }
 
 async function judge($: Api, command: string): Promise<Judge | null> {
@@ -213,6 +262,15 @@ async function rate($: Api, prompt: string): Promise<Route | null> {
   } catch {
     return null
   }
+}
+
+function question(command: string, j: Judge): string {
+  const shown = command.length > 160 ? `${command.slice(0, 157)}…` : command
+  if (j.why === 'project-rule') return `\`${shown}\` matches a rule in .jev/guard.json. Run it?`
+  const why: string[] = [`looks destructive (p ${(j.p ?? 0).toFixed(2)})`]
+  if ((j.outside ?? 0) >= 0.5) why.push(`reaches outside the project (p ${(j.outside ?? 0).toFixed(2)})`)
+  if (j.requested !== null && j.requested !== undefined && j.requested < 0.5) why.push(`does not look like part of what you asked (p ${j.requested.toFixed(2)})`)
+  return `\`${shown}\` ${why.join(', ')}. Run it?`
 }
 
 function inspectUses(e: { name: string; tier: string; uses: { events: readonly string[]; calls: readonly string[]; env?: { reads: readonly string[]; writes: readonly string[] } } }): string | null {
@@ -251,11 +309,11 @@ export const register: Register = (on, options) => {
   canAsk = false
   launcher = null
   summary = null
-  usageLine = ''
+  ctxPct = null
   sessionUsd = null
-  hidden = false
+  refreshedAt = ''
+  collapsed = false
   paneOpen = false
-  paneText = ''
   lastPrompt = ''
   turnCommands = []
   pendingRoute = null
@@ -275,9 +333,11 @@ export const register: Register = (on, options) => {
       await $.env.set('JEV_GUARD_MOD', '1')
     }
     try {
-      hidden = (await $.store.get('band_hidden')) === true
+      // An earlier build hid the line for good, with no way back: whoever pressed that gets it back, open.
+      if ((await $.store.get('band_hidden')) !== undefined) await $.store.delete('band_hidden')
+      collapsed = (await $.store.get('band_collapsed')) === true
     } catch {
-      hidden = false
+      collapsed = false
     }
     // `/jevmate`, or `/jev-session` where something else already has that name; the band's details button
     // and /jevmate:stats show the same numbers either way.
@@ -285,7 +345,8 @@ export const register: Register = (on, options) => {
       try {
         await $.command.register({
           name,
-          description: 'Open the jev pane: what went through jev this session, what it kept out, what that saved',
+          description: 'jev this session in a pane; show or hide the line above the prompt',
+          argumentHint: '[show|hide]',
           immediate: true,
         })
         break
@@ -297,7 +358,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: [...COMMANDS] }, async $ => {
+  on('command.run', { command: [...COMMANDS] }, async ($, e) => {
+    const arg = String(e.args ?? '').trim().toLowerCase()
+    if (arg === 'show' || arg === 'hide') {
+      setCollapsed($, arg === 'hide')
+      $.ui.toast(arg === 'show' ? 'jev: the line above the prompt is back' : 'jev: line folded · /jevmate show brings it back')
+      return {}
+    }
     await openPane($)
     return {}
   })
@@ -310,28 +377,133 @@ export const register: Register = (on, options) => {
   // ------------------------------------------------------------------ the band and the pane
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (cfg.bandMode === 'off' || hidden || e.props.hasSurvey) return next(e)
+    if (cfg.bandMode === 'off' || e.props.hasSurvey) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
+    const theirs = await next(e) // what other mods draw here stays, under ours
+    const j = summary?.jev
+    if (collapsed) {
+      const chip: Piece = isIdle(j) || !j ? { text: ' ready', dim: true } : { text: ` ~${money(j.saved)} saved`, color: GOOD }
+      return (
+        <Box flexDirection="column">
+          <Box flexDirection="row">
+            <Text bold color={ACCENT}>◆ jev</Text>
+            <Text {...style(chip)}>{chip.text}</Text>
+            <Text>  </Text>
+            <Button key="show" label="show" plain dimColor onPress={() => setCollapsed($, false)} />
+          </Box>
+          {theirs}
+        </Box>
+      )
+    }
+    const room = Math.max(24, e.props.bodyColumns - 26)
+    const pieces: Piece[] = []
+    fit(segments(), room).forEach((seg, i) => {
+      if (i) pieces.push({ text: ' · ', dim: true })
+      pieces.push(...seg.pieces)
+    })
     return (
-      <Box>
-        <Text dimColor>{bandLine(e.props.bodyColumns)} </Text>
-        <Button key="details" label="details" plain onPress={() => void openPane($).catch(() => undefined)} />
-        <Text dimColor> </Text>
-        <Button key="hide" label="hide" plain onPress={() => hideBand($)} />
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          <Text bold color={ACCENT}>◆ jev</Text>
+          <Text>  </Text>
+          {pieces.map(p => (
+            <Text {...style(p)}>{p.text}</Text>
+          ))}
+          <Text>   </Text>
+          <Button key="details" label="details" plain onPress={() => void openPane($).catch(() => undefined)} />
+          <Text dimColor> · </Text>
+          <Button key="hide" label="hide" plain dimColor onPress={() => setCollapsed($, true)} />
+        </Box>
+        {theirs}
       </Box>
     )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const lines = paneText ? paneText.split('\n') : ['reading the session…']
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const j = summary?.jev
+    const project = summary?.cwd ? summary.cwd.split('/').filter(Boolean).pop() : ''
+    const row = (label: string, pieces: Piece[]) => (
+      <Box flexDirection="row">
+        <Box width={LABEL}>
+          <Text dimColor>{label}</Text>
+        </Box>
+        {pieces.map(p => (
+          <Text {...style(p)}>{p.text}</Text>
+        ))}
+      </Box>
+    )
+    const header = (
+      <Box flexDirection="row">
+        <Text bold color={ACCENT}>◆ jev</Text>
+        <Text dimColor>{` · this session${project ? ` · ${project}` : ''}${refreshedAt ? ` · ${refreshedAt}` : ''}`}</Text>
+      </Box>
+    )
+    const controls = (
+      <Box flexDirection="row" columnGap={2}>
+        <Button key="toggle" label={collapsed ? 'show the line above the prompt' : 'fold the line above the prompt'} onPress={() => setCollapsed($, !collapsed)} />
+        <Button key="refresh" label="refresh" onPress={() => void refresh($)} />
+        <Button key="close" label="close" role="dismiss" onPress={() => void $.ui.close({ id: PANE }).catch(() => undefined)} />
+      </Box>
+    )
+    if (isIdle(j) || !j) {
+      return (
+        <Box flexDirection="column">
+          {header}
+          <Text> </Text>
+          <Text dimColor>{summary ? 'Nothing went through jev yet this session. `jev sift`, `jev tests` and the hooks show up here.' : 'reading the session…'}</Text>
+          <Text> </Text>
+          {controls}
+        </Box>
+      )
+    }
+    const s = spent()
+    const share = s ? Math.min(1, j.saved / s.usd) : null
+    const bar = Math.max(10, Math.min(36, e.props.bodyColumns - LABEL - 8))
+    const filled = share === null ? 0 : Math.round(share * bar)
+    const top = Object.entries(j.labels ?? {})
+      .slice(0, 4)
+      .map(([name, tokens]) => `${name} ${k(tokens)}`)
+      .join(' · ')
     return (
       <Box flexDirection="column">
-        {lines.map(line => (
-          <Text wrap="truncate-end">{line || ' '}</Text>
-        ))}
-        <Text dimColor> </Text>
-        <Text dimColor>/jevmate:stats shows this in the chat · `jev hooks tune` learns the guard's bar from what you let through</Text>
+        {header}
+        <Text> </Text>
+        {row('went through jev', [
+          { text: `${n(j.decisions)} decisions`, bold: true },
+          { text: ` over ${k(j.tokens)} tokens · ${n(j.requests)} request${j.requests === 1 ? '' : 's'}${j.cached ? `, ${j.cached} from cache` : ''}`, dim: true },
+        ])}
+        {j.trimmed
+          ? row('trimmed', [
+              { text: `${k(j.trimmed)} tokens`, bold: true, color: INFO },
+              { text: ` of command output kept out in ${j.trim_runs} run${j.trim_runs === 1 ? '' : 's'}`, dim: true },
+            ])
+          : row('trimmed', [{ text: 'nothing long enough yet', dim: true }])}
+        {row('would have cost', [
+          { text: `~${money(j.would)}`, bold: true, color: WARN },
+          { text: j.once !== undefined ? ` to read it all yourself: ${money(j.once)} once, ${money(j.reread ?? 0)} re-read later` : ' to read it all yourself', dim: true },
+        ])}
+        {row('saved', [
+          { text: `~${money(j.saved)}`, bold: true, color: GOOD },
+          { text: ` at most, after ${money(j.paid)} paid to jev`, dim: true },
+        ])}
+        {share !== null && s
+          ? row('', [
+              { text: '█'.repeat(filled), color: GOOD },
+              { text: '░'.repeat(bar - filled), dim: true },
+              { text: ` ${pct(share)}`, bold: true, color: GOOD },
+              { text: ` of the session's ${s.estimated ? '~' : ''}${money(s.usd)}`, dim: true },
+            ])
+          : row('', [{ text: 'the session cost is not known yet', dim: true }])}
+        {row('guard', j.asked ? [{ text: `asked ${j.asked}×`, bold: true, color: WARN }, { text: ' this session', dim: true }] : [{ text: 'nothing to ask about yet', dim: true }])}
+        {ctxPct !== null
+          ? row('context', [{ text: `${ctxPct}%`, bold: true, ...(ctxPct >= 80 ? { color: BAD } : ctxPct >= 60 ? { color: WARN } : {}) }, { text: ' in use', dim: true }])
+          : row('context', [{ text: 'unknown', dim: true }])}
+        {top ? row('by command', [{ text: top, dim: true }]) : row('by command', [{ text: '—', dim: true }])}
+        <Text> </Text>
+        {controls}
+        <Text> </Text>
+        <Text dimColor>saved is a ceiling: the band jev was unsure about was read anyway · /jevmate:stats puts this in the chat</Text>
       </Box>
     )
   })
@@ -362,7 +534,7 @@ export const register: Register = (on, options) => {
     routeFor.delete(e.turnId)
     void refresh($)
     if (cfg.evidenceLine !== 'off' && e.answer.length >= 40 && CLAIM.test(e.answer) && !turnCommands.some(c => RUNNER.test(c))) {
-      return { ...result, text: 'jev: this reply says a test, build or check passed, but no test, build or lint command ran this turn' }
+      return { ...result, text: '⚠ jev: this reply says a test, build or check passed, but no test, build or lint command ran this turn' }
     }
     return result
   })
@@ -395,11 +567,10 @@ export const register: Register = (on, options) => {
     const j = await judge($, command)
     if (!j || j.decision !== 'ask') return decided
     flagged.add(command)
-    const question = `${j.reason ?? `jev guard: p(destructive)=${(j.p ?? 0).toFixed(2)} — ${command.slice(0, 160)}`}. Run this command?`
     let answer: string
     try {
       // Refuse first: a dialog that resolves on its own (the person away from the keyboard) must not run it.
-      answer = await $.ui.ask(question, ['Refuse', 'Run it'])
+      answer = await $.ui.ask(question(command, j), { header: 'jev guard', options: ['Refuse', 'Run it'] })
     } catch {
       return { decision: 'deny', reason: 'jev guard: the question was dismissed; confirm with the person before running this command' }
     } finally {
