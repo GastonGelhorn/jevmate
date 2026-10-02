@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevmate"
-version = "1.4.1"
+version = "1.5.0"
 description = "Jev for coding agents: a CLI, a Claude Code plugin and an MCP server, with measured thresholds"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-authors = [{ name = "Gaston Gelhorn" }]
+authors = [{ name = "Gaston Gelhorn", email = "gastongelhorn@gmail.com" }]
 keywords = ["agents", "claude-code", "classification", "calibration", "cli"]
 classifiers = [
   "Environment :: Console",
