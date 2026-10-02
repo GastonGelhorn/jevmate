@@ -18,8 +18,8 @@ output (the safety checks are listed apart because the agent would not have read
 cache reads until the next compaction; "saved" is the difference, a ceiling because the uncertain
 band was read anyway. On a subscription the dollars are an API equivalent and the "plan" row gives
 the share of the 5-hour window and of the week. "safety" counts what the hooks caught, which is
-their value: it is not money. When the saving is small, say plainly that the session had little
-reading for jev to take over, and that jev pays off on large searches, logs, test suites, long diffs
-and many items to sort. The model side is an estimate from the transcript.
+their value: it is not money. When the saving is small, lead with what the hooks caught, and say
+where jev saves most: large searches, logs, test suites, long diffs and many items to sort. The
+model side is an estimate from the transcript.
 If the person wants these numbers without asking, they are on the line above the prompt
 (Claude Code 2.1.287 or later), and `/jevmate` opens the same table in a pane.
