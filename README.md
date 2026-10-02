@@ -1,25 +1,22 @@
 # jevmate
 
-Jev, from the shell, for coding agents. A CLI, a Claude Code plugin and an MCP server around
-[TypeSafe's Jev](https://docs.typesafe.ai): a small, fast model that answers yes/no, pick-one and
-"where on this scale" questions with a calibrated probability instead of a paragraph.
+Coding agents spend expensive context on cheap decisions. jevmate makes those decisions first with
+[TypeSafe's Jev](https://docs.typesafe.ai), a small calibrated model, and hands only the uncertain
+ones back to the agent.
 
-I wrote this for my own Claude Code sessions. The agent kept reading forty files to find the three
+I wrote it for my own Claude Code sessions. The agent kept reading forty files to find the three
 that mattered, or running a whole test suite to learn which tests a change could break. Those are
-judgment calls that repeat, and a frontier model is an expensive way to make them. Jev makes them
-in about 250 ms for $0.04 per million tokens (or for nothing, on a local server), and this repo wraps
-it so the agent reaches for it on its own.
+judgment calls that repeat, and a frontier model is an expensive way to make them. Jev answers
+yes/no, pick-one and "where on this scale" questions with a calibrated probability instead of a
+paragraph, in about 250 ms, for $0.04 per million tokens, or for nothing on a local model.
 
-![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/line-above-the-prompt.jpg)
+```
+"Which of these 400 commits fix a bug?"
 
-The line above the prompt, after a session in which jev sifted 836 files three times: 2.3 million
-tokens judged for ten cents, about $23 of reading at API prices, and on a subscription a third of a
-5-hour window kept free.
-
-The threshold is measured before a question decides anything (`jev tune`), and the measurement
-travels with the question (`jev q`). The session tells you what Jev kept out of the context and what
-reading it would have cost (`jev session`, `/jevmate:stats`). The hooks never widen what you allowed:
-the Bash guard asks or stays quiet, it never answers "allow", and it learns from what you let through.
+400 commits ─► jev ─┬─ clear yes ─┐
+                    ├─ clear no  ─┴─► decided by jev
+                    └─ unsure ──────► the agent judges only these
+```
 
 ```
 $ jev yes 'Does `text` ask for money back?' --field text=@mail.txt
@@ -32,6 +29,17 @@ $ jev sift --query "where failed deliveries are retried" src/ --top 3
 
 $ jev tests --ref main --top 3 --paths-only | xargs vendor/bin/phpunit
 ```
+
+jevmate is a command line, an MCP server and a Claude Code plugin. The command line works with any
+agent that runs shell commands, the MCP server with any agent that speaks MCP, and the plugin adds
+hooks and the session's numbers inside Claude Code.
+
+![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/line-above-the-prompt.jpg)
+
+The line above the prompt, after a session in which jev sifted 836 files three times: 2.3 million
+tokens judged for ten cents, about $23 of reading at API prices, and on a subscription a third of a
+5-hour window kept free. Savings follow the workload: they are largest when an agent would
+otherwise read a large set of candidates.
 
 ## Install
 
@@ -55,7 +63,7 @@ jev doctor
 
 `pip install .` works too. Python 3.10 or newer, standard library only.
 
-## What it does
+## What it decides
 
 | question | asks | command | returns |
 |---|---|---|---|
@@ -68,22 +76,28 @@ request, each item inside its own question: `rank` and `batch` for anything, `si
 grep hits, `tests` for the test files a diff exercises, `diff` for hunks by risk, `failures` and
 `cluster` for a red suite, `stream` for a log you are tailing.
 
+What jev cannot decide comes back as a band: `--abstain LO HI --uncertain-out review.txt` sets the
+rows near the bar aside, for the agent, a cheaper agent or a person to read.
+
 Before a question decides anything at volume, `jev tune` runs a few phrasings over rows you labelled
 and reports the threshold, the confusion matrix, how many rows sit close enough to the bar to flip
-between runs, and the band to hand to a reader. `--save` keeps the winner; `--q NAME` uses it anywhere.
-`jev q install core` brings ten questions with the thresholds they shipped with.
+between runs, and the band to hand to a reader. `--save` keeps the winner; `--q NAME` uses it
+anywhere. `jev q install core` brings ten questions with the thresholds they shipped with.
+
+The same decisions are MCP tools (`jev mcp`): `decide`, `ask`, `rank`, `sift`, `tests`, `diff`,
+`cluster` and `session`, for an agent that prefers a typed call to a shell command.
 
 ## In Claude Code
+
+The plugin brings the skill Claude reaches for on its own, and around it:
 
 | piece | what it is for |
 |---|---|
 | `/jevmate:sift`, `tests`, `review`, `pr`, `triage` | the same workflows as slash commands |
-| the line above the prompt, `/jevmate` | the same numbers live while you work, and the full table in a pane |
-| `/jevmate:stats` | what went through Jev this session, what reading it would have cost, what that saved, in the chat |
-| `/jevmate:setup` | key, backend and a health check, without the key ever entering the chat |
 | `jevmate:band-reader`, `jevmate:reviewer` | a Haiku agent that labels the uncertain band, a Sonnet agent that reads the risky hunks, so the main context pays for neither |
-| hooks | below |
-| MCP tools | `decide`, `ask`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`, for when a typed call beats a shell command |
+| the line above the prompt, `/jevmate` | the session's numbers live while you work, and the full table in a pane |
+| `/jevmate:stats` | the same numbers in the chat |
+| `/jevmate:setup` | key, backend and a health check, without the key ever entering the chat |
 
 ![The details pane: saved $23.09 at most, broken down into reading, trim, subagents and low effort; the 5-hour window at 64% used with 31.9% kept free by jev; the week at 35% with 5.9% kept free; safety: guard asked 8 times, 12 pages flagged, 395 checks; context 89% in use, each turn re-reads it for about $0.22](docs/img/details-pane.jpg)
 
@@ -92,42 +106,60 @@ whether it is on. On a subscription no token is billed, so the dollars are an AP
 two plan windows show what jev kept free. The context row says what re-reading the conversation
 costs on every turn: in a long session that is the largest cost, and it is what `/compact` reclaims.
 
-The hooks run without being asked. Before a Bash command: a guard that asks when the command looks
-destructive, takes project rules from `.jev/guard.json`, remembers what you let through in the
-session and knows what you last asked for. After a Bash command: long output trimmed to the parts
-that carry information (the full output stays on disk), a red test run grouped by cause with the
-quick ones named first, and content fetched with curl or gh screened for text aimed at an agent.
-After WebFetch: the same screen. At session start: skills and plugins that are new or changed are
-read for instructions aimed at an agent. Everything fails open and logs one line per decision
-(`jev hooks status`, `jev hooks tune`).
+**Hooks** run without being asked. Two keep text out of the context: long command output is trimmed
+to the parts that carry information, with the full output kept on disk, and a red test run is
+grouped by cause, the quick causes named first. Three are safety signals: a guard before Bash
+commands that look destructive, which remembers what you let through and knows what you last asked
+for; a screen on fetched content for text aimed at an agent; and an inspection of new or changed
+skills and plugins at session start. They are a second opinion on top of Claude Code's permissions,
+not a security boundary: they fail open, the guard can ask or refuse but never allow, and the screen
+marks text without blocking it. Each logs one line per decision (`jev hooks status`).
 
-On Claude Code 2.1.287 and later the plugin also ships a mod, a module that runs inside Claude Code
-itself and does what a hook command cannot:
+**The mod**, on Claude Code 2.1.287 and later, runs inside Claude Code itself. It draws the line
+above the prompt and the pane, asks you in Claude's own dialog before a destructive command in
+bypassPermissions mode, where a hook alone could only refuse, and adds a line under a reply that
+claims a check passed when none ran. It also runs two opt-in levers on the costs that reading does
+not reach, both measured as they run: reading subagents on a cheaper model (`subagent_model`) and
+low effort on routine turns (`route_mode: effort`). On older versions the hooks work alone.
+`docs/PLUGIN.md` has every hook, bar and setting.
 
-- a line above the prompt with this session's numbers, in your theme's colors, in the terminal and
-  in the desktop app. It leads with what jev did in its own units: a saving when there is one worth
-  showing (on a subscription, as a share of your 5-hour window and of the week), and otherwise what
-  the hooks caught. `details` (or `/jevmate`) opens the full table in a pane; `hide` folds it to a
-  small chip, and `show` (or `/jevmate show`) opens it again;
-- in bypassPermissions mode, where no permission prompt can appear, a hook alone can only deny a
-  clearly destructive command. The mod asks you instead, in Claude's own question dialog, and the
-  command runs only if you say so. It reuses the hook's verdict, so there is no second model call,
-  and it still never answers "allow" on its own;
-- a line under a reply that says tests or a build passed when no test, build or lint command ran
-  that turn. No model call and nothing blocked;
-- reading subagents on a cheaper model, if you turn it on: with `subagent_model` set to `sonnet` or
-  `haiku`, a subagent Claude starts without choosing a model, whose task jev reads as reading,
-  searching or summarizing, runs on that model. A subagent has its own context, so the main
-  conversation's cache is untouched, and its saving is priced from its own usage;
-- low effort on routine turns, if you turn it on (`route_mode: effort`). It first checks, on a small
-  context, whether lowering effort keeps the prompt cache on your Claude Code build, and stops for
-  good if it does not. The main turn's model is never switched: a model's cache does not carry to
-  another, so switching would re-write the whole conversation at the new model's price;
-- when another plugin's mod loads, one line if it reads a credential and reaches the network, can
-  answer permission checks or writes environment variables.
+## In Codex, OpenCode and scripts
 
-On older versions the hooks work alone and the numbers live in `/jevmate:stats`, `jev watch` (the
-desktop app's Terminal panel) and `jev statusline install` (the terminal CLI).
+`jev` is an ordinary command, so any agent that runs shell commands can use it. `install.sh` links
+the skill into `~/.codex/skills`, `~/.agents/skills` and `~/.config/opencode/skills` when those
+folders exist. For Codex the MCP server takes three lines in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.jev]
+command = "jev"
+args = ["mcp"]
+```
+
+The hooks, the mod, the slash commands and the two agents stay in Claude Code. `jev session` and
+`jev watch` read Claude Code's transcripts; elsewhere `jev usage` and `jev cost` read the same
+ledger.
+
+## In CI
+
+jev needs no agent in the loop. Install it with
+`pip install git+https://github.com/GastonGelhorn/jevmate`, put a TypeSafe key in
+`TYPESAFE_API_KEY` from a secret, and check out the history the diff needs (`fetch-depth: 0`):
+
+```bash
+jev tests --ref origin/main --top 10 --paths-only | xargs pytest -q       # the tests the change touches, first
+pytest -q > out.txt 2>&1 || { jev cluster -i out.txt --split pytest-long; exit 1; }   # a red suite, by cause
+jev diff --ref origin/main --min-level shared                             # the risky hunks of the branch
+```
+
+`jev yes` exits 0 for yes and 1 for no or unsure, so a decision can gate a step.
+
+## Backends
+
+jev runs against TypeSafe's hosted API, OpenRouter, or any server that answers the same
+`/v1/systemone` endpoint, so no single host is a dependency. `jev config set backend ollaya` or
+`von` points at the open models running on your machine, with no key; `jev config set backend
+http://host:port` points anywhere else. Thresholds are per model, so run `jev tune` again after
+switching.
 
 ## What it sends, and where
 
@@ -151,29 +183,6 @@ The mod itself sends nothing: it runs the local `jev` command, which reads the l
 session's transcript on disk. Every part has an off switch in the plugin's settings. `SECURITY.md`
 has the rest.
 
-## Codex, OpenCode and scripts
-
-`jev` is an ordinary command, so any agent that runs shell commands can use it. `install.sh` links
-the skill into `~/.codex/skills`, `~/.agents/skills` and `~/.config/opencode/skills` when those
-folders exist. For Codex the MCP server takes three lines in `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.jev]
-command = "jev"
-args = ["mcp"]
-```
-
-What stays in Claude Code: the hooks, the mod, the slash commands and the two agents. `jev session`
-and `jev watch` read Claude Code's transcripts; elsewhere `jev usage` and `jev cost` read the same
-ledger.
-
-## Backends
-
-TypeSafe's hosted API, OpenRouter, or any server that answers the same `/v1/systemone` endpoint.
-`jev config set backend ollaya` or `von` points at the open models running on your machine, with no
-key; `jev config set backend http://host:port` points anywhere else. Thresholds are per model, so run
-`jev tune` again after switching.
-
 ## Where it pays off
 
 jev keeps text out of the context, so it pays off wherever there is text to keep out: large
@@ -182,10 +191,6 @@ WordPress repository of 836 files judged 2.3 million tokens for ten cents; readi
 cost about $23 at API prices, a third of a 5-hour window on a subscription. In a session spent
 writing code there is less to keep out, and the line above the prompt then shows what the hooks
 caught.
-
-Two more levers reach the costs that reading does not: reading subagents on a cheaper model
-(`subagent_model`) and low effort on routine turns (`route_mode: effort`). Both are opt-in and
-measured as they run.
 
 ## Numbers
 
@@ -210,5 +215,4 @@ evals/      six cases for `claude plugin eval`
 tests/      python3 -m unittest discover -s tests
 ```
 
-What leaves the machine is the state and the questions you pass, to the backend you chose; the
-ledger keeps metadata only. `SECURITY.md` has the details. MIT.
+MIT license.

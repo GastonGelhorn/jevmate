@@ -37,14 +37,16 @@ store and hands it to the hook process, which copies it to the key file once. Th
 needs to see it: `/jevmate:setup` tells the person to run `jev auth set` in their own terminal.
 `TYPESAFE_API_KEY` in the environment is read too, for scripts and CI.
 
-**Hooks.** The Bash guard answers `ask` or nothing; it never answers `allow`, so it cannot widen
-what the person permitted. Where no prompt can appear (bypassPermissions) it denies a command at
+**Hooks.** The hooks are a safety signal, not a security boundary: a second opinion on top of
+Claude Code's own permissions, which stay in force and remain the boundary. The Bash guard answers
+`ask` or nothing; it never answers `allow`, so it cannot widen what the person permitted. Where no prompt can appear (bypassPermissions) it denies a command at
 p >= 0.90, unless the plugin's mod is loaded in an interactive session: then the mod asks the
 person in Claude Code's own question dialog, with "Refuse" as the first answer, and the command runs
 only on "Run it". A dismissed question, or a failure of the mod while it was about to ask, refuses
-the command. Every hook fails open on any other error. Fetched pages are screened for text
-addressed to an agent, but that is advice to the model, not a filter: the content still arrives
-unchanged.
+the command. Any other failure is open: when the backend is slow or unreachable, a command or a
+page goes through as Claude Code alone would let it. Fetched pages are screened for text addressed
+to an agent, but that is advice to the model, not a filter: the content still arrives unchanged.
+The inspection of installed files reports what it finds and changes nothing.
 
 **The mod.** `hooks/jevmate.tsx` runs inside Claude Code and reaches nothing of its own: it runs
 the local `jev` command (to read the session's numbers and the guard's verdict, and to record what

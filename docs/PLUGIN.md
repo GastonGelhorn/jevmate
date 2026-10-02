@@ -74,7 +74,9 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
 ## The mod
 
 `hooks/hooks.json` names `hooks/jevmate.tsx` under `modules`. Claude Code 2.1.287 and later load
-it into the session; older versions ignore the field and run the hooks alone. It calls the local
+it into the session; older versions ignore the field and run the hooks alone, and the numbers are
+in `/jevmate:stats`, `jev watch` (the desktop app's Terminal panel) and `jev statusline install` (the
+terminal CLI). It calls the local
 `jev` for every decision, so thresholds, the cache and the ledger stay the CLI's.
 
 - **The line above the prompt** (`band_mode`): it leads with value in its own units. A saving of 50
