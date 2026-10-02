@@ -179,11 +179,11 @@ class Plan(unittest.TestCase):
 
     def test_learns_points_per_dollar_and_prices_the_kept_out_text(self):
         r = lambda five, week: {"five_hour": {"pct": five, "resets": "A"}, "seven_day": {"pct": week, "resets": "W"}}  # noqa: E731
-        self.assertIsNone(metrics.plan_view("s1", 10.0, None), "off a subscription there is no plan")
+        self.assertIsNone(metrics.plan_view("s1", 10.0, None, now=100), "off a subscription there is no plan")
         metrics.plan_record("s1", 1.0, r(10.0, 2.0), now=100)
         for i in range(1, 4):
             metrics.plan_record("s1", 1.0 + 2 * i, r(10.0 + i, 2.0 + 0.2 * i), now=100 + i)
-        view = metrics.plan_view("s1", 10.0)
+        view = metrics.plan_view("s1", 10.0, now=104)
         five, week = view["windows"]["five_hour"], view["windows"]["seven_day"]
         self.assertEqual(view["billing"], "subscription")
         self.assertAlmostEqual(five["rate"], 0.5, places=2, msg="3 points over $6")
@@ -201,8 +201,30 @@ class Plan(unittest.TestCase):
         metrics.plan_record("s1", 8.0, {"five_hour": {"pct": 9.5, "resets": "B"}}, now=104)   # the session's figure went back
         rates = json.loads((settings.HOME / "plan.json").read_text())["rates"]
         self.assertEqual(rates, {})
-        self.assertIsNone(metrics.plan_view("s1", 10.0)["windows"]["five_hour"]["kept_free"], "still measuring")
-        self.assertIn("measuring", metrics.plan_line(metrics.plan_view("s1", 10.0)))
+        self.assertIsNone(metrics.plan_view("s1", 10.0, now=105)["windows"]["five_hour"]["kept_free"], "still measuring")
+        self.assertIn("measuring", metrics.plan_line(metrics.plan_view("s1", 10.0, now=105)))
+
+    def test_a_window_left_out_keeps_its_last_reading_until_it_resets(self):
+        import time as _time
+        base = _time.time()
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        later, soon = iso(base + 36_000), iso(base + 150)
+        metrics.plan_record("s1", 1.0, {"five_hour": {"pct": 4.0, "resets": soon}, "seven_day": {"pct": 22.0, "resets": later}}, now=base)
+        metrics.plan_record("s1", 2.0, {"seven_day": {"pct": 22.5, "resets": later}}, now=base + 60)
+        view = metrics.plan_view("s1", 1.0, now=base + 100)
+        self.assertEqual(view["windows"]["five_hour"]["used"], 4.0, "kept from the reading before")
+        self.assertEqual(view["windows"]["seven_day"]["used"], 22.5)
+        self.assertEqual(view["missing"], [])
+        view = metrics.plan_view("s1", 1.0, now=base + 200)
+        self.assertNotIn("five_hour", view["windows"], "a window that reset is not shown")
+        self.assertEqual(view["missing"], ["five_hour"])
+
+    def test_per_model_weekly_windows_are_kept_and_named(self):
+        future = "2099-01-01T00:00:00Z"
+        metrics.plan_record("s1", 1.0, {"seven_day": {"pct": 25.0, "resets": future}, "seven_day_fable": {"pct": 24.0, "resets": future},
+                                        "spend_limit": {"pct": 5.0, "resets": future}}, now=1000)
+        view = metrics.plan_view("s1", 1.0, now=1001)
+        self.assertEqual([w["label"] for w in view["windows"].values()], ["week", "week, Fable"])
 
     def test_parse(self):
         self.assertEqual(metrics.parse_plan(["five_hour=23.5@2026-10-02T14:00:00Z", "seven_day=4", "bogus"]),
