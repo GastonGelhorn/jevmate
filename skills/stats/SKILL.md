@@ -15,3 +15,5 @@ Explain the three rows briefly to the person: "went through jev" is measured (de
 of text jev read instead of you); "would have cost" is that text priced at your input rate, once,
 plus its re-read on later turns; "saved" is the difference, a ceiling because the uncertain band
 was read anyway. The model side is an estimate from the transcript at list price.
+If the person wants these numbers without asking, they are on the line above the prompt
+(Claude Code 2.1.287 or later), and `/jevmate` opens the same table in a pane.
