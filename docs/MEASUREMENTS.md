@@ -160,3 +160,29 @@ keeping or because fewer than 40 lines would have gone.
 
 The check that a command reads files now looks past `cd dir &&`, `X=1;` and `set -e;` in front of it:
 before, `cd repo && sed -n 1,450p file` was not recognized as a read.
+
+## Compaction: what the rules settle (2026-10-04)
+
+Every Claude Code transcript and Codex rollout on the author's machine, each read from its latest
+compaction on, with the ten latest large results left alone:
+
+| | Claude Code | Codex |
+|---|---|---|
+| sessions with large results | 67 | 236 |
+| tool results over 1,500 characters | 3,175, ~4.0M tokens | 6,959, ~26M tokens |
+| moved out by a rule | 229 (7.2%) | 556 (8.0%) |
+| the file was edited later | 218 | 484 |
+| read again · ran again · retried | 6 · 3 · 2 | 12 · 60 · 0 |
+| tokens freed by the rules alone | 15.8%, with 142 file writes shortened | 6.3% |
+
+Shell output is most of the volume on both: Bash was three quarters of the large results' tokens in
+Claude Code, and Codex's code-mode `exec` four fifths. The rules read shell reads (`cat`, `sed -n`,
+`head`), patches written from code mode, and a path named absolute in one call and relative in
+another.
+
+The latest compaction is found from the end of the file, so the live part is all that gets parsed:
+the 280 Codex rollouts, 7.8 GB, took 5.7 s in all, and none took longer than half a second.
+
+The rest is Jev's to judge. Its bars, kept whole from p 0.65 and cut from 0.35, are where tuning
+starts, not a measurement: `jev compact --report` counts how often a result moved out is read back
+from disk, and that rate moves them.

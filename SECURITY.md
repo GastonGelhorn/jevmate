@@ -15,7 +15,9 @@ you pass it. The hooks send, on their own:
   CLAUDE.md and AGENTS.md that are new or changed since the last look;
 - routing and the honesty check, both off by default: the prompt you typed, or the reply and the
   commands of that turn;
-- subagent routing, off by default: the task of a subagent Claude starts without choosing its model.
+- subagent routing, off by default: the task of a subagent Claude starts without choosing its model;
+- compaction, off by default: before Claude Code or Codex compacts, the start and end of each large
+  tool result, the person's last three prompts and the agent's last message.
 
 Tokens, keys and passwords (`key=…`, bearer headers and the common key shapes) are replaced with
 `<secret>` before any of this is sent or logged. `--dry-run` prints the request any command would
@@ -29,7 +31,9 @@ home with your user's permissions; `jev cache clear` removes them. `hooks.log` k
 hook decision, with the command masked and cut to 200 characters. Trimmed output and red test runs
 are saved in full to the session's scratch folder or the jev home, so nothing the trim drops is lost.
 `plan.json` keeps, on a subscription, the 5-hour and weekly windows' percentages and each session's
-cost for 14 days, to learn how much of a window a dollar of use takes.
+cost for 14 days, to learn how much of a window a dollar of use takes. With compaction on,
+`compacted/` keeps the full text of each large tool result saved before a compaction, for 14 days,
+so the agent can read it back; it is what the transcript already held, in a second place.
 
 **The key.** `jev auth set` writes it with mode 0600 and never prints it whole. The plugin's
 configuration field is marked sensitive, so Claude Code keeps it in the platform's credential
@@ -43,19 +47,23 @@ Claude Code's own permissions, which stay in force and remain the boundary. The 
 p >= 0.90, unless the plugin's mod is loaded in an interactive session: then the mod asks the
 person in Claude Code's own question dialog, with "Refuse" as the first answer, and the command runs
 only on "Run it". A dismissed question, or a failure of the mod while it was about to ask, refuses
-the command. Any other failure is open: when the backend is slow or unreachable, a command or a
+the command. Under Codex, whose hooks cannot ask, the reason reaches the person as a warning and
+Codex's own approval rules decide. Any other failure is open: when the backend is slow or unreachable, a command or a
 page goes through as Claude Code alone would let it. Fetched pages are screened for text addressed
 to an agent, but that is advice to the model, not a filter: the content still arrives unchanged.
 The inspection of installed files reports what it finds and changes nothing.
 
 **The mod.** `hooks/jevmate.tsx` runs inside Claude Code and reaches nothing of its own: it runs
 the local `jev` command (to read the session's numbers and the guard's verdict, and to record what
-it did), reads `HOME` and `PATH`, sets `JEV_GUARD_MOD` for the hooks, keeps two values in Claude
-Code's store (`band_collapsed`, whether the line is folded, and `effort_cache`, whether lowering
-effort kept the prompt cache on this Claude Code version), and draws a line, a pane and a question.
+it did), reads `HOME` and `PATH`, sets `JEV_GUARD_MOD` for the hooks, keeps three values in Claude
+Code's store (`band_collapsed`, whether the line is folded; `effort_cache`, whether lowering effort
+kept the prompt cache on this Claude Code version; `compact_cache`, whether the summarizer pays for
+its whole input there), and draws a line, a pane and a question.
 With `route_mode: effort` it lowers the effort of a turn Jev rated routine; with `subagent_model`
-set it picks the model of a reading subagent Claude starts without choosing one. `claude plugin
-validate .` lists every call it makes.
+set it picks the model of a reading subagent Claude starts without choosing one. With
+`compact_mode` on, and once it has measured that this pays, it hands Claude Code's summarizer the
+conversation with stale tool results replaced by a line saying where each one was saved. `claude
+plugin validate .` lists every call it makes.
 
 **Code.** Standard library only, no dependencies, no `eval`, no `pickle`, no network beyond the
 API call and the two documentation fetches (`jev docs`, `jev guide --live`) that print what they

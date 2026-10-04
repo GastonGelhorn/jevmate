@@ -1,14 +1,17 @@
 # The plugin, piece by piece
 
 ```
-.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, band, evidence, screen, triage, trim, inspect, routing, subagents, honesty)
+.claude-plugin/plugin.json      manifest, userConfig (key, backend, guard, band, evidence, screen, triage, trim, compaction, inspect, routing, subagents, honesty)
 .claude-plugin/marketplace.json this repo is its own marketplace: add it, install `jevmate@gastongelhorn`
 skills/jev/SKILL.md             the skill Claude invokes on its own
 skills/{sift,tests,review,pr,triage,stats,setup}/SKILL.md   /jevmate:… for the person; never auto-invoked
 agents/band-reader.md           jevmate:band-reader, a Haiku agent that labels the uncertain band in its own context
 agents/reviewer.md              jevmate:reviewer, a Sonnet agent that reads the hunks jev diff rated risky
-hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, Stop (opt-in); and the mod
-hooks/jevmate.tsx               the mod (Claude Code 2.1.287+): the line above the prompt, /jevmate and its pane, the guard's question in bypass mode, the evidence line, routing
+hooks/hooks.json                SessionStart, UserPromptSubmit (route), PreToolUse Bash (guard), PostToolUse Bash (after-bash) and WebFetch|WebSearch (screen), PostToolUseFailure Bash, PreCompact (opt-in), Stop (opt-in); and the mod
+hooks/jevmate.tsx               the mod (Claude Code 2.1.287+): the line above the prompt, /jevmate and its pane, the guard's question in bypass mode, the evidence line, routing, the pruned conversation for the summarizer
+hooks/codex.json                the same hooks for Codex, answering in Codex's terms
+.codex-plugin/plugin.json       the Codex plugin; .agents/plugins/marketplace.json makes the repo a Codex marketplace
+jev/compact.py                  compaction: the rules, Jev's judgment, the saved results and the block after the compaction
 jev/packs/core.json             ten questions with their thresholds: jev q install core
 .mcp.json                       `jev mcp`: decide, ask, rank, sift, tests, diff, cluster, session as tools
 bin/jev                         on the Bash tool's PATH while the plugin is enabled
@@ -30,7 +33,7 @@ Do not run both: the plugin already wires its hooks.
 
 ## What each hook does
 
-Six events. All fail open; the bars come from the plugin's settings (`/config`) or the environment.
+Seven events. All fail open; the bars come from the plugin's settings (`/config`) or the environment.
 
 - **SessionStart**: writes `JEV_SESSION=session:<id>` into `CLAUDE_ENV_FILE`, so every `jev` call
   the agent makes from Bash is attributed to the session in the ledger; turns the plugin's key and
@@ -70,6 +73,18 @@ Six events. All fail open; the bars come from the plugin's settings (`/config`) 
   transcript shows a test, build or lint command ran this turn, nothing happens and nothing is sent;
   when none ran, the model is asked whether the reply really claims a passed check (p >= 0.70) and,
   if so, Claude is asked to run it before stopping. Never twice in a row (`stop_hook_active`).
+- **PreCompact** (`pre-compact`, opt-in via `compact_mode`): before Claude Code compacts, the live
+  conversation is read from the transcript, from its latest compaction on, and every tool result over
+  1,500 characters is judged. Rules come first and cost nothing: a file read again in full or edited
+  later (by the Read tool, a shell read such as `cat` or `sed -n`, an edit or a patch), a command run
+  again, an error a retry fixed. Jev judges the rest, each result inside its own question, against
+  the person's last three prompts and the agent's last message: kept whole at p >= 0.65, cut to its
+  head and tail from 0.35, moved out below. The ten latest large results are never judged. Every large
+  result is saved under `compacted/` in the jev home, and when SessionStart fires with `source:
+  compact` it adds a block of at most 2,500 tokens: the latest results and the ones Jev judged still
+  needed, verbatim or cut, then where the rest are. Without a key or a backend the rules still decide
+  and everything else stays whole. A read of one of those files later is logged as a result moved out
+  too eagerly; `jev compact --report` gives the rate, which is what the two bars are tuned against.
 
 ## The mod
 
@@ -113,6 +128,13 @@ terminal CLI). It calls the local
   the task as reading, searching, listing or summarizing (p >= 0.85), the subagent runs on that model.
   When it finishes, its own usage is priced at both models and the difference counts as saved. The
   plugin's own agents and forks are left alone.
+- **The summarizer's input** (`compact_mode`): the first compaction on a Claude Code version is left
+  alone and measured. If its summarizer request read the conversation from the prompt cache, a pruned
+  conversation would cost more than it saves, so this stays off on that version; if the summarizer paid
+  for its whole input, from then on it gets the conversation with the moved results replaced by one
+  line each and the cut ones by their head and tail, and the calls that wrote a file without the file's
+  text. The saving is logged at the session model's input price. A summary computed ahead of time is
+  skipped while this is on, since it would be computed over the unpruned conversation and thrown away.
 - **Other mods**: as each loads, one line when it reads a credential and reaches the network or
   processes, answers permission checks, or writes environment variables.
 
@@ -125,7 +147,7 @@ guard's call; `ask` asks without one. `jev hooks tune` reads the guard's asks an
 (allowed, declined) and proposes this machine's ask bar once it has twenty pairs.
 
 The bars: `guard_mode`, `band_mode`, `evidence_line`, `screen_mode`, `triage_mode`, `trim_mode`, `inspect_mode`, `route_mode`,
-`route_conf`, `subagent_model`, `honesty_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN` in the environment. Every
+`route_conf`, `subagent_model`, `honesty_mode`, `compact_mode` in the plugin's settings (`/config`); `JEV_GUARD_ASK`, `JEV_GUARD_DENY`, `JEV_SCREEN_WARN`, `JEV_COMPACT_KEEP`, `JEV_COMPACT_CUT`, `JEV_COMPACT_RECENT`, `JEV_COMPACT_MIN`, `JEV_COMPACT_BUDGET` in the environment. Every
 decision is one JSON line in `hooks.log` (`jev hooks status`). On Windows the hook commands fall
 back to `py -3` when `python3` is not on the PATH.
 
@@ -194,9 +216,29 @@ review-by-risk (each expects a `jev …` command and a right answer), and single
 (expects no jev call at all). `Bash(jev *)` has to be granted on the command line; eval runs
 never prompt. Requires a Claude Code that has `claude plugin eval`.
 
+## Codex
+
+`.codex-plugin/plugin.json` names `hooks/codex.json` and the skills folder; Codex finds them once
+`codex plugin marketplace add GastonGelhorn/jevmate` has run, the plugin is installed and its hooks
+are trusted in `/hooks`. The hook commands are the same `jev hook …`, and the hooks know they run
+under Codex (Codex sets `PLUGIN_ROOT` and puts a turn id in its turn hooks; `JEV_HOST=codex` forces
+it). Where Codex reads an answer differently, they answer in its terms:
+
+- the guard cannot ask: where Claude Code would show a permission prompt, the person gets the
+  reason as a warning and Codex's own approval rules decide; where no prompt can appear it refuses;
+- trimmed output replaces the tool's result as hook feedback, since Codex does not take a rewritten
+  result from PostToolUse;
+- compaction cannot be changed from a hook, so the large results are saved at PreCompact and the
+  block comes back at SessionStart (`source: compact`); turn it on with `jev config set compact on`;
+- the slash skills carry `agents/openai.yaml` with `allow_implicit_invocation: false`: Codex runs
+  them when named (`$sift`), never on its own.
+
+The mod, the agents and `jev session` stay Claude Code's.
+
 ## Files the plugin writes
 
 Under the jev home (`~/.config/jev`, or `JEV_HOME`): the key, `config.json`, the ledger,
-`hooks.log`, `plan.json`, `cache/`, `sessions/`, `questions/`, `outputs/`. The full output of a
-trimmed command or a red test run goes to the session's scratch folder when Claude Code has one,
-else to `outputs/`. Nothing under `${CLAUDE_PLUGIN_ROOT}`, which changes on every update.
+`hooks.log`, `plan.json`, `cache/`, `sessions/`, `questions/`, `outputs/`, `compacted/`. The full
+output of a trimmed command or a red test run goes to the session's scratch folder when Claude Code
+has one, else to `outputs/`. `compacted/` holds one folder per compaction, kept 14 days. Nothing
+under `${CLAUDE_PLUGIN_ROOT}`, which changes on every update.

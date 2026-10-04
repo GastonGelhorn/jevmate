@@ -30,9 +30,9 @@ $ jev sift --query "where failed deliveries are retried" src/ --top 3
 $ jev tests --ref main --top 3 --paths-only | xargs vendor/bin/phpunit
 ```
 
-jevmate is a command line, an MCP server and a Claude Code plugin. The command line works with any
-agent that runs shell commands, the MCP server with any agent that speaks MCP, and the plugin adds
-hooks and the session's numbers inside Claude Code.
+jevmate is a command line, an MCP server, and a plugin for Claude Code and for Codex. The command line
+works with any agent that runs shell commands, the MCP server with any agent that speaks MCP, and the
+plugins add hooks; in Claude Code also the session's numbers above the prompt.
 
 ![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/line-above-the-prompt.jpg)
 
@@ -52,6 +52,12 @@ claude plugin install jevmate@gastongelhorn
 
 That brings the skill, the slash commands, the hooks, the MCP tools and `jev` on the PATH of the
 Bash tool. You will be asked for a key (TypeSafe or OpenRouter) and a backend; both can wait.
+
+As a Codex plugin, from the same repo (more under [In Codex](#in-codex)):
+
+```bash
+codex plugin marketplace add GastonGelhorn/jevmate
+```
 
 As a plain CLI, for Codex, OpenCode, scripts or cron:
 
@@ -115,6 +121,15 @@ skills and plugins at session start. They are a second opinion on top of Claude 
 not a security boundary: they fail open, the guard can ask or refuse but never allow, and the screen
 marks text without blocking it. Each logs one line per decision (`jev hooks status`).
 
+**Compaction**, opt-in with `compact_mode`. Before Claude Code compacts the conversation, every large
+tool result in it is judged: rules settle a file read again or edited later, a command run again and
+an error a retry fixed, and Jev judges the rest against what you asked. Each one is saved on disk.
+After the compaction a short block repeats the results the work still needs and lists where the
+others are, so nothing the summary drops is lost. Once jev has measured that the summarizer pays for
+its whole input, it also hands the summarizer the conversation with the stale results moved out.
+Your words, Claude's and the latest results are never touched; `jev compact` shows what it would do
+to any session, Claude Code's or Codex's.
+
 **The mod**, on Claude Code 2.1.287 and later, runs inside Claude Code itself. It draws the line
 above the prompt and the pane, asks you in Claude's own dialog before a destructive command in
 bypassPermissions mode, where a hook alone could only refuse, and adds a line under a reply that
@@ -123,21 +138,34 @@ not reach, both measured as they run: reading subagents on a cheaper model (`sub
 low effort on routine turns (`route_mode: effort`). On older versions the hooks work alone.
 `docs/PLUGIN.md` has every hook, bar and setting.
 
-## In Codex, OpenCode and scripts
+## In Codex
+
+The repo is a Codex marketplace too. After `codex plugin marketplace add GastonGelhorn/jevmate`,
+install jevmate from the plugin list, review and trust its hooks in `/hooks`, and put `jev` on the
+PATH (`./install.sh` or `pip install`) so the agent can run it; `jev auth set <key>` sets the key.
+
+Codex runs the same hooks: the guard, trim, triage, the screen on curl and gh, routing and the
+honesty check, and compaction after `jev config set compact on`. Codex's hooks cannot ask before a
+command runs, so the guard warns you where Claude Code would ask, and refuses only where no prompt
+can appear. A hook cannot change what a Codex compaction keeps either, so jev saves the large results
+before it and hands back the block after it. The slash skills run only when you name them (`$sift`).
+
+What stays in Claude Code: the mod (the line above the prompt, the pane, the summarizer reading the
+pruned conversation), the two agents, and `jev session` and `jev watch`, which read Claude Code's
+transcripts. Elsewhere `jev usage` and `jev cost` read the same ledger.
+
+## OpenCode and scripts
 
 `jev` is an ordinary command, so any agent that runs shell commands can use it. `install.sh` links
 the skill into `~/.codex/skills`, `~/.agents/skills` and `~/.config/opencode/skills` when those
-folders exist. For Codex the MCP server takes three lines in `~/.codex/config.toml`:
+folders exist. The MCP server takes three lines in `~/.codex/config.toml`, and the same command
+anywhere else:
 
 ```toml
 [mcp_servers.jev]
 command = "jev"
 args = ["mcp"]
 ```
-
-The hooks, the mod, the slash commands and the two agents stay in Claude Code. `jev session` and
-`jev watch` read Claude Code's transcripts; elsewhere `jev usage` and `jev cost` read the same
-ledger.
 
 ## In CI
 
@@ -178,6 +206,7 @@ local ledger keeps metadata only. What each part sends:
 | routing (off by default) | on each prompt you type | the prompt |
 | honesty check (off by default) | when a reply claims a check passed and none ran | the reply and the commands of that turn |
 | subagent routing (off by default) | when Claude starts a subagent without choosing its model | the subagent's task |
+| compaction (off by default) | before Claude Code or Codex compacts | the start and end of each large tool result, your last prompts and the agent's last message |
 
 The mod itself sends nothing: it runs the local `jev` command, which reads the ledger and the
 session's transcript on disk. Every part has an off switch in the plugin's settings. `SECURITY.md`
@@ -194,23 +223,25 @@ caught.
 
 ## Numbers
 
-Everything in the defaults was measured; `docs/MEASUREMENTS.md` has the tables and dates. The short
-version: one question went from 63.8% to 76.2% accuracy by moving the threshold alone; items addressed
+The defaults were measured; `docs/MEASUREMENTS.md` has the tables and dates, and says which bars are
+still being tuned. The short version: one question went from 63.8% to 76.2% accuracy by moving the threshold alone; items addressed
 by position in a long list were wrong 27% of the time and items embedded in their own question 0%;
 identical requests jitter by about ±0.02; the confident answers of a 76% question were all right and
 the errors all sat in the band. A 1,300-line `npm install` came out of the trim hook as 47 lines with
 the warning and the summary intact; with trim starting at 4,000 tokens, 40 real outputs lost 2 of
-their 828 lines that carry a signal, both of them documentation prose.
+their 828 lines that carry a signal, both of them documentation prose. Before a compaction the rules
+alone settle 7 to 8% of the large tool results with no model call, and the latest compaction of a
+1.4 GB Codex transcript is found in 0.04 s.
 
 ## Layout
 
 ```
-jev/        the package: client, cache, ledger, grading, decide, analysis, metrics, library, hooks, mcp
+jev/        the package: client, cache, ledger, grading, decide, analysis, metrics, library, hooks, compact, mcp
 jev/cli/    one module per command family, loaded only when its command runs
 jev/guide/  the playbook (`jev guide`) and the recipes (`jev examples`)
 skills/     the skill Claude invokes, and the /jevmate:… ones you invoke
 agents/     band-reader and reviewer
-hooks/ .mcp.json .claude-plugin/   the plugin wiring; the repo is its own marketplace
+hooks/ .mcp.json .claude-plugin/ .codex-plugin/ .agents/   the plugin wiring for Claude Code and Codex; the repo is a marketplace for both
 evals/      six cases for `claude plugin eval`
 tests/      python3 -m unittest discover -s tests
 ```
