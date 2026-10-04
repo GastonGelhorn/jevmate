@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.0
+
+Compaction that keeps what the work needs (`compact_mode`, off by default; `jev compact`). Before
+Claude Code or Codex compacts, every large tool result is judged. Rules settle, with no model call, a
+file read again or edited later, a command run again and an error a retry fixed; Jev judges the rest,
+each result inside its own question, against what the person asked. The uncertain band is cut, never
+moved out whole. Every large result is saved on disk, and after the compaction a block of at most
+2,500 tokens repeats what the work still needs and says where the rest is. With the mod, once the
+summarizer is measured to pay for its whole input, it reads the conversation with stale results
+moved out. `jev compact --report` counts how often a saved result is read again.
+
+jevmate for Codex: a Codex plugin (`.codex-plugin/`, `hooks/codex.json`, a repo marketplace) with
+the guard, trim, triage, the screen, routing, the honesty check and compaction, each answering in
+Codex's terms. The slash skills run there only when named.
+
+Fixed: the honesty check's block reached neither Claude Code nor Codex, because it was nested where a
+Stop hook's answer is not read.
+
 ## 1.5.4 — first public release
 
 The `jev` command (ask, yes, pick, rate; rank, batch, sift, tune, label, scaffold; tests, diff,
