@@ -96,7 +96,10 @@ test command fails, a `jev triage:` line groups the failures by cause and says w
 full output is saved for `jev cluster -i`); a `jev route:` line says when a prompt reads as routine work
 worth a cheaper subagent; a `jev screen:` line flags fetched or curled content that talks to an agent; long command output arrives
 trimmed to what matters, with a first line saying where the full output is; installed skills and plugins are
-inspected for instructions aimed at you, and `jev inspect` does it on demand.
+inspected for instructions aimed at you, and `jev inspect` does it on demand. With compaction on, a
+`[jev compact]` block after a compaction repeats the tool results the work still needs and names the
+folder where every large result was saved: read the file from there rather than running the command
+again.
 `jev q install core` brings ten questions with their thresholds (`jev q packs`). The same decisions
 exist as MCP tools (`decide`, `ask`, `rank`, `sift`, `tests`, `diff`, `cluster`, `session`) when a typed call
 beats a shell command. Saved questions (`jev q list`, `--q NAME` on yes/rank/batch/label/stream) carry
