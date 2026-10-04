@@ -4,13 +4,14 @@
 // draw the session's numbers above the prompt and in a pane, put a line under a reply that claims
 // a check passed when none ran, ask the person about a destructive command where no permission
 // prompt can appear (bypassPermissions), run a reading subagent on a cheaper model, lower the
-// effort of a routine turn once it has checked that this keeps the prompt cache, and say what
-// another mod reaches for as it loads. Every call into jev goes through `python3 <plugin>/bin/jev`,
+// effort of a routine turn once it has checked that this keeps the prompt cache, hand Claude Code's
+// summarizer the conversation with stale tool results moved out once it has checked that this pays,
+// and say what another mod reaches for as it loads. Every call into jev goes through `python3 <plugin>/bin/jev`,
 // so the thresholds, the prices and the ledger stay the CLI's.
 //
 // Needs Claude Code 2.1.287 or later; older versions ignore `modules` and keep the hooks alone.
 
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionMessage, ToolResultSummary, ToolUseSummary } from 'claude-code'
 
 type Api = EngineInterface
 // The element constructors a surface draws with ($.ui.resolve), passed to the drawing helpers.
@@ -45,6 +46,9 @@ const PROBE_CTX = 100_000 // until the cache check has run, effort is only lower
 const CACHE_TTL_MS = 240_000 // a step later than this after the previous one may have lost the cache by age
 
 type Safety = { asked: number; pages_flagged: number; files_flagged: number; triaged: number; claims: number; checks: number }
+type Compaction = { runs: number; judged: number; moved: number; cut: number; kept: number; freed: number; restored: number; rereads: number; pruned: number; saved_usd: number }
+// What `jev compact --messages` hands back for a result it moves or cuts, or a file write it shortens.
+type Change = { id: string; kind: 'result' | 'input'; text?: string; input?: Record<string, unknown> }
 type Routing = { subagents: number; subagent_saved: number; subagent_spent: number; effort_turns: number; effort_cache: 'keeps' | 'rewrites' | null }
 type JevSide = {
   requests: number
@@ -68,6 +72,7 @@ type JevSide = {
   hook_labels?: Record<string, number>
   safety?: Safety
   routing?: Routing
+  compact?: Compaction
   share?: number
 }
 // A plan window as jev reads it: points used when Claude Code last read it, and the points the kept-out text would have taken.
@@ -99,7 +104,7 @@ type Routed = { parent: string; model: string; kind: string }
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
 // Module state. A reload starts it over; nothing here is worth keeping past that.
-let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off', trimMode: 'on' }
+let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off', trimMode: 'on', compactMode: 'off' }
 let optionEnv: Record<string, string> = {}
 let sessionId = ''
 let cwd = ''
@@ -117,6 +122,7 @@ let turnCommands: string[] = []
 let pendingRoute: Route | null = null
 let version = ''
 let effortCache: 'keeps' | 'rewrites' | null = null
+let compactCache: 'pays' | 'costs' | null = null
 let lastStep = { ctx: 0, at: 0 }
 let prevLow = false
 const routeFor = new Map<string, Route>()
@@ -396,6 +402,70 @@ async function setEffortCache($: Api, verdict: 'keeps' | 'rewrites') {
   )
 }
 
+// Does the summarizer pay for its whole input on this build? Read off the first compaction's own request: when it
+// read the conversation from the prompt cache, a pruned conversation would cost more than it saves, so pruning stays off.
+async function learnCompactCost($: Api, result: unknown) {
+  const r = result as { skip?: string; usage?: Usage }
+  if (compactCache || r.skip || !r.usage) return
+  const u = r.usage
+  const total = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+  if (total < 20_000) return
+  compactCache = u.cache_read_input_tokens >= 0.5 * total ? 'costs' : 'pays'
+  $.store.set('compact_cache', { version, verdict: compactCache }).catch(() => undefined)
+  await note($, 'compact-cache', { verdict: compactCache, version, total, cache_read: u.cache_read_input_tokens })
+  $.ui.log(
+    compactCache === 'pays'
+      ? 'jev: the summarizer pays for its whole input on this build, so from the next compaction it reads the conversation with stale tool results moved out'
+      : 'jev: the summarizer reads the conversation from the prompt cache on this build, so jev does not prune before it; the block after each compaction stays',
+  )
+}
+
+// The judged results of this conversation: what to move out or cut before the summarizer reads it.
+async function compactPlan($: Api, messages: readonly SessionMessage[]): Promise<Map<string, Change> | null> {
+  const payload = JSON.stringify({
+    messages: messages.map(m => ({
+      role: m.role,
+      text: m.text,
+      toolUses: m.toolUses.map(u => ({ tool_use_id: u.tool_use_id, tool: u.tool, input: u.input, text: u.text, isError: u.isError })),
+      toolResults: (m.toolResults ?? []).map(r => ({ tool_use_id: r.tool_use_id, text: r.text, isError: r.isError })),
+    })),
+  })
+  const args = ['compact', '--messages', '-', '--apply', '--pruned', '--json', '--compact']
+  if (summary?.model?.last_model) args.push('--price-model', summary.model.last_model)
+  const r = await jev($, args, payload, 120_000)
+  if (!r || r.exitCode !== 0) return null
+  try {
+    const plan = JSON.parse(r.stdout) as { changes?: Change[] }
+    return new Map((plan.changes ?? []).map(c => [c.id, c]))
+  } catch {
+    return null
+  }
+}
+
+// A message the plan touches is rebuilt without its handle, so the engine builds it from these fields; the rest stay the engine's own.
+function pruneMessages(messages: readonly SessionMessage[], changes: Map<string, Change>): SessionMessage[] {
+  const use = (u: ToolUseSummary): ToolUseSummary => {
+    const c = changes.get(u.tool_use_id)
+    const out: ToolUseSummary = { tool_use_id: u.tool_use_id, tool: u.tool, input: c?.kind === 'input' && c.input ? c.input : u.input }
+    const text = c?.kind === 'result' && c.text !== undefined ? c.text : u.text
+    if (text !== undefined) out.text = text
+    if (u.isError) out.isError = true
+    if (u.agentId) out.agentId = u.agentId
+    return out
+  }
+  const result = (r: ToolResultSummary): ToolResultSummary => {
+    const c = changes.get(r.tool_use_id)
+    return { tool_use_id: r.tool_use_id, text: c?.kind === 'result' && c.text !== undefined ? c.text : r.text, isError: r.isError }
+  }
+  return messages.map(m => {
+    const touched = m.toolUses.some(u => changes.has(u.tool_use_id)) || (m.toolResults ?? []).some(r => changes.has(r.tool_use_id))
+    if (!touched) return m
+    const rebuilt: SessionMessage = { role: m.role, text: m.text, toolUses: m.toolUses.map(use) }
+    if (m.toolResults && m.toolResults.length) rebuilt.toolResults = m.toolResults.map(result)
+    return rebuilt
+  })
+}
+
 function question(command: string, j: Judge): string {
   const shown = command.length > 160 ? `${command.slice(0, 157)}…` : command
   if (j.why === 'project-rule') return `\`${shown}\` matches a rule in .jev/guard.json. Run it?`
@@ -440,6 +510,7 @@ export const register: Register = (on, options) => {
     routeConf: Number(opt('route_conf', '0.80')) || 0.8,
     subagentModel: opt('subagent_model', 'off'), // off · sonnet · haiku
     trimMode: opt('trim_mode', 'on'),
+    compactMode: opt('compact_mode', 'off'), // off · on
   }
   // The plugin's options reach the jev process the way Claude Code hands them to a hook command.
   optionEnv = {}
@@ -461,6 +532,7 @@ export const register: Register = (on, options) => {
   pendingRoute = null
   version = ''
   effortCache = null
+  compactCache = null
   lastStep = { ctx: 0, at: 0 }
   prevLow = false
   routeFor.clear()
@@ -491,6 +563,8 @@ export const register: Register = (on, options) => {
       collapsed = (await $.store.get('band_collapsed')) === true
       const seen = (await $.store.get('effort_cache')) as { version?: string; verdict?: 'keeps' | 'rewrites' } | undefined
       effortCache = seen && seen.version === version && seen.verdict ? seen.verdict : null
+      const cost = (await $.store.get('compact_cache')) as { version?: string; verdict?: 'pays' | 'costs' } | undefined
+      compactCache = cost && cost.version === version && cost.verdict ? cost.verdict : null
     } catch {
       collapsed = false
     }
@@ -649,6 +723,8 @@ export const register: Register = (on, options) => {
     const trimOn = cfg.trimMode !== 'off'
     const subagentOn = cfg.subagentModel === 'sonnet' || cfg.subagentModel === 'haiku'
     const effortOn = cfg.routeMode === 'effort'
+    const compactOn = cfg.compactMode === 'on'
+    const co = j.compact
     const models = sub ? Object.entries(sub.models).map(([m, count]) => `${count} on ${shortModel(m)}`).join(', ') : ''
     return (
       <Box flexDirection="column">
@@ -695,6 +771,22 @@ export const register: Register = (on, options) => {
                   : ' · routine turns run at the session effort',
             dim: true,
           },
+        ])}
+        {row('  compaction', [
+          { text: compactOn ? 'on' : 'off', bold: true, ...(compactOn ? { color: GOOD } : {}) },
+          co && co.runs
+            ? {
+                text: ` · ${plural(co.runs, 'compaction')} judged · ${n(co.moved)} results moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}`,
+                dim: true,
+              }
+            : {
+                text: compactOn
+                  ? compactCache === 'pays'
+                    ? ' · at the next compaction the summarizer reads the conversation with stale results moved out'
+                    : ' · at the next compaction, large results are judged and saved, and what the work needs comes back after the summary'
+                  : ' · Claude Code summarizes on its own',
+                dim: true,
+              },
         ])}
         {plan ? Object.entries(plan).map(([kind, w]) => windowRow(kind, w)) : null}
         {plan && summary?.plan?.missing?.includes('five_hour')
@@ -818,6 +910,33 @@ export const register: Register = (on, options) => {
     }
     if (u) lastStep = { ctx: u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens, at: now }
     return result
+  })
+
+  // ------------------------------------------------------------------ compaction
+
+  // With compact_mode on, the PreCompact hook judges the large tool results before Claude Code summarizes, and the
+  // block after the compaction repeats what the work still needs. This adds one step once it has measured that it
+  // pays: the summarizer reads the conversation with the stale results already moved out.
+  on('session.compact', async ($, e, next) => {
+    if (cfg.compactMode !== 'on' || e.agentId) return next(e)
+    if (compactCache !== 'pays') {
+      if (e.trigger === 'precompute') return next(e)
+      const result = await next(e)
+      await learnCompactCost($, result)
+      return result
+    }
+    // A summary computed ahead of time over the unpruned conversation would be thrown away: prune when the compaction comes instead.
+    if (e.trigger === 'precompute') return { skip: 'jev prunes the conversation when the compaction comes' }
+    const changes = await compactPlan($, e.messages)
+    if (!changes || !changes.size) return next(e)
+    $.ui.log(`jev compact: the summarizer reads the conversation with ${plural(changes.size, 'tool result')} moved out or cut; all of them are saved on disk`)
+    return next({ ...e, messages: pruneMessages(e.messages, changes) })
+  })
+
+  // A file a compaction saved, read again: the result was needed after all. `jev compact --report` counts these.
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    if (/\/compacted\/session-[\w.-]+\/\d{3}-/.test(String((e as { file_path?: unknown }).file_path ?? ''))) await note($, 'compact-reread', { tool: 'Read' })
+    return next(e)
   })
 
   // ------------------------------------------------------------------ subagents on a cheaper model
