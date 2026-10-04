@@ -106,7 +106,9 @@ def render(plan: dict, source: str, host: str, opts: dict, applied: bool, color:
     if s["inputs"]:
         lines.append(f"  {b}calls shortened{r0} {s['inputs']:>4}   {dim}files the agent wrote: the text is in the file (the mod's summary only){r0}")
     lines.append(f"  {b}freed{r0}           {g}~{fmt_k(s['freed'])} tokens{r0} of the conversation")
-    lines.append(f"  {b}afterwards{r0}      {dim}a block of ~{fmt_k(plan['restore_tokens'])} tokens repeats what the work still needs and lists where the rest is{r0}")
+    k = s.get("repeated", 0)
+    lines.append(f"  {b}afterwards{r0}      {dim}a block of ~{fmt_k(plan['restore_tokens'])} tokens "
+                 + (f"repeats {k} result(s) Jev judged still needed and lists where the rest is{r0}" if k else f"lists where they are and repeats none{r0}"))
     unjudged = sum(1 for r in rows if r["why"] == "unjudged")
     if s["requests"]:
         lines.append(f"  {b}Jev{r0}             {s['requests']} request(s)" + (f" ({s['cached']} from cache)" if s["cached"] else "")

@@ -8,9 +8,10 @@ for and what the agent was doing. The uncertain band is cut, never moved out who
 words, the agent's own text and the latest results are never touched.
 
 Every judged result is saved on disk first, so nothing is lost. After the compaction a short block
-repeats, verbatim, the results the work still needs and says where the others are. Reading one of
-those files later marks a result moved out too eagerly; `jev compact --report` counts them, which
-is how the bars get tuned.
+repeats, verbatim, the results Jev judged the work still needs, the latest included, and says where
+the others are. Without Jev it repeats none: recency alone cannot tell the file about to be changed
+from the output of a task already finished. Reading one of those files later marks a result moved
+out too eagerly; `jev compact --report` counts them, which is how the bars get tuned.
 
 With Claude Code's mod the summarizer can also be handed the pruned conversation, which makes the
 summary cheaper when the summarizer pays for its input. Codex compacts on its own and gets the block.
@@ -520,6 +521,8 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
             row["why"] = "small"
         elif i in pinned:
             row["why"] = "recent"
+            if i not in rules:
+                cands.append(i)  # never touched, but judged: the block repeats only what the work still needs
         elif i in rules:
             row.update(action="move", why=rules[i])
         else:
@@ -529,7 +532,8 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
     if cands:
         if client is None:
             for i in cands:
-                rows[i]["why"] = "unjudged"
+                if i not in pinned:
+                    rows[i]["why"] = "unjudged"
         else:
             from .grading import grade
             from .hooks import mask_secrets
@@ -543,11 +547,13 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
                 usage = {"requests": g.requests, "cached": g.cached, "input_tokens": g.input_tokens}
                 for r in g.results:
                     i, p = cands[r["i"]], float(r["p"])
-                    rows[i].update(p=round(p, 3), why="jev", action="keep" if p >= keep_at else "cut" if p >= cut_at else "move")
+                    rows[i]["p"] = round(p, 3)
+                    if i not in pinned:
+                        rows[i].update(why="jev", action="keep" if p >= keep_at else "cut" if p >= cut_at else "move")
             except Exception as e:  # noqa: BLE001  what Jev could not judge stays whole
                 usage["error"] = f"{type(e).__name__}: {str(e)[:160]}"
                 for i in cands:
-                    rows[i].update(why="unjudged", action="keep")
+                    rows[i].update(p=None, action="keep", why="recent" if i in pinned else "unjudged")
     # A file the agent wrote: its text is on disk, so the call's own copy of it can go (the mod rebuilds the call).
     inputs = []
     for i, it in enumerate(items):
@@ -593,7 +599,8 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
                       "moved": counts["move"], "recent": sum(1 for r in rows if r["why"] == "recent"),
                       "rules": rule_counts, "jev": sum(1 for r in rows if r["why"] == "jev"),
                       "inputs": len(inputs), "tokens": sum(r["tokens"] for r in rows if r["chars"] >= min_chars), "freed": freed, **usage}}
-    restore, index = _restore(plan, items, budget, folder, min_chars)
+    restore, index, repeated = _restore(plan, items, budget, folder, min_chars, keep_at)
+    plan["stats"]["repeated"] = repeated
     plan.update(restore=restore, index=index, restore_tokens=est_tokens(len(restore)))
     if folder is not None:
         prune_store()
@@ -624,13 +631,14 @@ def _excerpt(text: str, path: str | None) -> str:
     return f"{text[:EXCERPT - 400]}\n… [cut here; the full text is at {path or 'the saved file'}] …\n{text[-400:]}"
 
 
-def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, min_chars: int = MIN_CHARS) -> tuple[str, str | None]:
-    """The block that follows the compaction: the results the work still needs, verbatim, then where
-    every saved result is. Kept under `budget` tokens."""
+def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, min_chars: int = MIN_CHARS,
+             keep_at: float = KEEP_AT) -> tuple[str, str | None, int]:
+    """The block that follows the compaction: the results Jev judged the work still needs, verbatim,
+    then where every saved result is. Kept under `budget` tokens."""
     rows = plan["decisions"]
     saved = [(it, r) for it, r in zip(items, rows) if r["chars"] >= min_chars or r["path"]]
     if not saved:
-        return "", None
+        return "", None, 0
     index = None
     if folder is not None:
         lines = ["# Saved by jev compact before a compaction", "",
@@ -639,25 +647,29 @@ def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, mi
         Path(index).write_text("\n".join(lines) + "\n", encoding="utf-8", errors="replace")
     room = int(budget * settings.CHARS_PER_TOKEN)
     where = f"in {folder}, listed in index.md" if folder is not None else "on disk"
-    head = (f"{STUB} Before this compaction, the {len(saved)} largest tool results were saved {where}. "
-            "The ones the work still needs are repeated below, verbatim or cut; read any other from that folder when it is needed.")
+    lead = f"{STUB} Before this compaction, the {len(saved)} largest tool results were saved {where}."
+    head = f"{lead} The ones the work still needs are repeated below, verbatim or cut; read any other from that folder when it is needed."
     out = [head]
     used = len(head)
-    # The newest results first (what the agent was working with), then what Jev judged still needed.
-    order = [x for x in reversed(saved) if x[1]["why"] == "recent"] + sorted(
-        (x for x in saved if x[1]["action"] == "keep" and x[1]["why"] != "recent"), key=lambda x: -(x[1]["p"] or 0))
+    # What Jev judged still needed, the surest first, then the newest. A result nobody judged is not repeated.
+    wanted = sorted((n for n, (_, r) in enumerate(saved) if r["p"] is not None and r["p"] >= keep_at), key=lambda n: (-saved[n][1]["p"], -n))
     listed = []
-    for it, r in order:
+    for n in wanted:
+        it, r = saved[n]
         block = f"\n\n## {r['tool']} {r['input']}\n{_excerpt(it['text'], r['path'])}"
         if used + len(block) > room * 0.75:
             continue
         out.append(block)
         used += len(block)
         listed.append(r["id"])
+    if not listed:
+        out[0] = f"{lead} Read any of them from that folder when the work needs it."
+        used = len(out[0])
     rest = [r for _, r in reversed(saved) if r["id"] not in listed and r["path"]]
     if rest:
-        out.append("\n\nAlso saved, newest first:")
-        used += 26
+        title = "\n\nAlso saved, newest first:" if listed else "\n\nNewest first:"
+        out.append(title)
+        used += len(title)
         for r in rest:
             line = f"\n- {os.path.basename(r['path'])}: {r['tool']} {r['input'][:110]}"
             if used + len(line) > room:
@@ -665,7 +677,7 @@ def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, mi
                 break
             out.append(line)
             used += len(line)
-    return "".join(out), index
+    return "".join(out), index, len(listed)
 
 
 # ---------------------------------------------------------------- hand-over between the hooks and the mod
@@ -713,7 +725,7 @@ def take_restore(tag: str, max_age: float = 1800) -> str | None:
 def log_fields(plan: dict) -> dict:
     s = plan["stats"]
     return {"judged": s["judged"], "kept": s["kept"], "cut": s["cut"], "moved": s["moved"], "by_rule": sum(s["rules"].values()),
-            "by_jev": s["jev"], "inputs": s["inputs"], "tokens": s["tokens"], "freed": s["freed"], "restored": plan.get("restore_tokens", 0),
+            "by_jev": s["jev"], "inputs": s["inputs"], "tokens": s["tokens"], "freed": s["freed"], "restored": plan.get("restore_tokens", 0), "repeated": s.get("repeated", 0),
             "requests": s["requests"], "cached": s["cached"], "dir": plan.get("dir"), **({"jev_error": s["error"][:120]} if s.get("error") else {})}
 
 

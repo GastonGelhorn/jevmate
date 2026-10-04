@@ -33,8 +33,8 @@ notice addressed to "any AI assistant" scored 0.99.
 Claude Code or Codex compacts. Rules first: a file read again or edited later, a command run again,
 an error a retry fixed. Jev judges the rest, one result per question, against what the person asked;
 the uncertain band is cut, never moved out. Every large result is saved under the jev home's
-`compacted/`, and after the compaction a block of at most 2,500 tokens repeats what the work still
-needs and says where the rest is. `jev compact` shows the plan for any session; `--report` counts how
+`compacted/`, and after the compaction a block of at most 2,500 tokens repeats what Jev judged the
+work still needs and says where the rest is; without Jev it only says where. `jev compact` shows the plan for any session; `--report` counts how
 often a result moved out was read again.
 
 Both fail open on any error and log one JSON line per decision to hooks.log. `jev hooks tune`

@@ -127,6 +127,14 @@ class Rules(unittest.TestCase):
         self.assertEqual(w["t3"], ("keep", "small"))
         self.assertNotIn("t4", w, "what an earlier compaction moved out is left as it is")
 
+    def test_without_jev_the_block_repeats_nothing(self):
+        p = self.plan([say("go"), call(1, "Read", {"file_path": "/r/a.py"}), res(1, BIG), call(2, "Bash", {"command": "make"}), res(2, BIG)],
+                      apply=True, tag="session:abcd1234", recent=1)
+        self.assertEqual(p["stats"]["repeated"], 0)
+        self.assertNotIn("##", p["restore"], "recency alone does not say what the work still needs")
+        self.assertNotIn("repeated below", p["restore"])
+        self.assertIn("002-Bash.txt: Bash make", p["restore"])
+
     def test_a_written_file_shortens_the_call(self):
         p = self.plan([say("go"), call(1, "Write", {"file_path": "/r/new.py", "content": BIG}), res(1, "File created"), call(2, "Bash", {"command": "ls"}), res(2, "a")])
         inputs = [c for c in p["changes"] if c["kind"] == "input"]
@@ -184,9 +192,23 @@ class Judged(unittest.TestCase):
         self.assertTrue(Path(plan["index"]).exists())
         moved = next(c for c in plan["changes"] if c["id"] == "t2")
         self.assertIn(str(folder), moved["text"], "the line left in place says where the text is")
-        self.assertIn("## Bash make", plan["restore"], "the latest result comes back first")
-        self.assertIn("## Read /r/a.py", plan["restore"], "and what Jev judged still needed")
+        self.assertIn("## Bash make", plan["restore"], "the latest result Jev judged still needed comes back")
+        self.assertIn("## Read /r/a.py", plan["restore"], "and so does an earlier one")
+        self.assertNotIn("## Bash du", plan["restore"])
+        self.assertEqual(plan["stats"]["repeated"], 2)
         self.assertLessEqual(len(plan["restore"]), compact.RESTORE_TOKENS * settings.CHARS_PER_TOKEN)
+
+    def test_the_latest_results_are_judged_for_the_block_but_never_touched(self):
+        events = [say("fix the retry bug"), call(1, "Read", {"file_path": "/r/a.py"}), res(1, "yes " + BIG),
+                  call(2, "Read", {"file_path": "/r/a.py"}), res(2, "yes " + BIG), call(3, "Bash", {"command": "git log"}), res(3, BIG)]
+        plan, t = self.build(events, apply=True, tag="session:abcd1234", recent=3)
+        w = {r["id"]: (r["action"], r["why"], r["p"]) for r in plan["decisions"]}
+        self.assertEqual(w["t1"], ("keep", "recent", None), "read again: settled by the rule, so not asked about")
+        self.assertEqual(w["t3"], ("keep", "recent", 0.1), "judged not needed, still left whole for the summary")
+        self.assertEqual(plan["changes"], [])
+        self.assertEqual(len(json.loads(t.calls[0][2])["questions"]), 2)
+        self.assertEqual(plan["restore"].count("## Read /r/a.py"), 1)
+        self.assertNotIn("## Bash git log", plan["restore"], "a finished task's output is not repeated")
 
     def test_old_stores_are_pruned(self):
         old = settings.HOME / "compacted" / "session-old-1"
