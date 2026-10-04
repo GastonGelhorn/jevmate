@@ -49,7 +49,8 @@ person in Claude Code's own question dialog, with "Refuse" as the first answer, 
 only on "Run it". A dismissed question, or a failure of the mod while it was about to ask, refuses
 the command. Under Codex, whose hooks cannot ask, the reason reaches the person as a warning and
 Codex's own approval rules decide. Any other failure is open: when the backend is slow or unreachable, a command or a
-page goes through as Claude Code alone would let it. Fetched pages are screened for text addressed
+page goes through as Claude Code alone would let it, and the person is told: the next hook they see
+carries a warning with the reason, once a session, and another line when the backend answers again. Fetched pages are screened for text addressed
 to an agent, but that is advice to the model, not a filter: the content still arrives unchanged.
 The inspection of installed files reports what it finds and changes nothing.
 

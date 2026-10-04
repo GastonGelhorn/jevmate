@@ -33,7 +33,10 @@ Do not run both: the plugin already wires its hooks.
 
 ## What each hook does
 
-Seven events. All fail open; the bars come from the plugin's settings (`/config`) or the environment.
+Seven events. All fail open, and not in silence: when Jev cannot judge (no key, no credit, no
+network), the next hook whose answer the person sees adds a warning with the reason, once a session
+and again if the reason changes, then one line when Jev answers again. The bars come from the
+plugin's settings (`/config`) or the environment.
 
 - **SessionStart**: writes `JEV_SESSION=session:<id>` into `CLAUDE_ENV_FILE`, so every `jev` call
   the agent makes from Bash is attributed to the session in the ledger; turns the plugin's key and
