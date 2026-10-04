@@ -1,6 +1,6 @@
 {
   "name": "jevmate",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures, reviews diffs and keeps what the work needs through a compaction.",
   "author": {
     "name": "Gaston Gelhorn",
