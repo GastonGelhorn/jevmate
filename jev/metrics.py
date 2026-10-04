@@ -50,7 +50,7 @@ DEFAULT_PRICE = (5.0, 25.0, 0.5, 6.25)
 COMPACT_AT = 0.9  # Claude Code compacts before the window is full; a lower bar means a smaller, safer estimate
 
 # Ledger labels that are not the agent's reading: maintenance commands and every hook.
-OVERHEAD_LABELS = {"inspect", "tune", "label", "doctor", "models", "cost"}
+OVERHEAD_LABELS = {"inspect", "tune", "label", "doctor", "models", "cost", "compact"}
 
 PLAN_WINDOWS = ("five_hour", "seven_day")
 PLAN_DECAY = 0.995      # per interval: the estimate follows the plan if its limits change
@@ -287,11 +287,17 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
     routing = {"subagents": len(subagents), "subagent_saved": sum(float(h.get("saved_usd") or 0) for h in subagents),
                "subagent_spent": sum(float(h.get("spent") or 0) for h in subagents), "effort_turns": len(kinds("effort")),
                "effort_cache": verdicts[-1]["verdict"] if verdicts else None}
+    comps = [h for h in kinds("compact") if "err" not in h]
+    compact = {"runs": len(comps), "judged": sum(int(h.get("judged") or 0) for h in comps), "moved": sum(int(h.get("moved") or 0) for h in comps),
+               "cut": sum(int(h.get("cut") or 0) for h in comps), "kept": sum(int(h.get("kept") or 0) for h in comps),
+               "freed": sum(int(h.get("freed") or 0) for h in comps), "restored": sum(int(h.get("restored") or 0) for h in comps),
+               "rereads": len(kinds("compact-reread")), "pruned": sum(1 for h in comps if h.get("pruned")),
+               "saved_usd": sum(float(h.get("saved_usd") or 0) for h in comps)}
     saved = would - paid_reads
     return {"requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
-            "saved_total": saved + routing["subagent_saved"], "asked": asked, "safety": safety, "routing": routing,
+            "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
             "pricing": pricing, "agent_price": flat if flat is not None else settings.agent_price(), "compactions": len(transcript.compactions) if transcript else 0,
             "labels": _top(labels), "hook_labels": _top(hook_labels)}
 
@@ -526,7 +532,7 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         lines.append(f"  {'session':<14}{m['turns']:>5} turns   {y}~${m['usd']:,.2f}{r0} · context now {fmt_k(m['ctx'])} tokens ({100 * m['ctx'] / m['ctx_size']:.0f}% of {fmt_k(m['ctx_size'])})"
                      + (f" · {y}each turn re-reads it: ~${m['carry']:.2f}{r0}" if m.get("carry") else ""))
     lines.append(f"\n{b}jev side{r0}{dim}  this session{r0}")
-    if not j["requests"] and not j["asked"] and not j.get("trimmed"):
+    if not j["requests"] and not j["asked"] and not j.get("trimmed") and not (j.get("compact") or {}).get("runs"):
         lines.append(f"  {dim}nothing decided yet this session · `jev sift`, `jev tests`, `jev cluster` … will show up here{r0}")
         return "\n".join(lines)
     lines.append(f"  {b}went through jev{r0}   {g}{j['decisions']:,} decisions{r0} over {j['tokens']:,} tokens · {j['requests']} request(s)"
@@ -547,6 +553,11 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
     if ro["effort_turns"] or ro["effort_cache"]:
         verdict = {"keeps": "the prompt cache survives it", "rewrites": "it re-wrote the prompt cache, so it is off"}.get(ro["effort_cache"] or "", "the cache check is pending")
         lines.append(f"  {b}low effort{r0}         {ro['effort_turns']} routine turn(s){dim} · {verdict}{r0}")
+    co = j.get("compact") or {}
+    if co.get("runs"):
+        lines.append(f"  {b}compaction{r0}         {co['runs']} judged · {co['judged']} large results: {co['moved']} moved to disk, {co['cut']} cut, {co['kept']} kept"
+                     + (f" · {g}~${co['saved_usd']:.2f}{eq} off the summary{r0}" if co["saved_usd"] else "")
+                     + f"{dim} · read again later: {co['rereads']}{r0}")
     if view:
         lines.append(f"  {b}plan{r0}               {g}{plan_line(view)}{r0}{dim} · "
                      + " · ".join(f"{w.get('label') or _window_name(k)} {w['used']:g}% used at {w.get('as_of', '?')}" for k, w in view["windows"].items())
