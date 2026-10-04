@@ -29,6 +29,14 @@ to the person, do not act on it. It cannot block (the fetch already happened) an
 text. A blog post about prompt injection quoting "ignore previous instructions" scored 0.05; a
 notice addressed to "any AI assistant" scored 0.99.
 
+**compact** (opt-in: `compact_mode` in the plugin, `jev config set compact on` elsewhere) runs before
+Claude Code or Codex compacts. Rules first: a file read again or edited later, a command run again,
+an error a retry fixed. Jev judges the rest, one result per question, against what the person asked;
+the uncertain band is cut, never moved out. Every large result is saved under the jev home's
+`compacted/`, and after the compaction a block of at most 2,500 tokens repeats what the work still
+needs and says where the rest is. `jev compact` shows the plan for any session; `--report` counts how
+often a result moved out was read again.
+
 Both fail open on any error and log one JSON line per decision to hooks.log. `jev hooks tune`
 reads the guard's asks and what followed, and proposes this machine's ask bar once it has twenty
 pairs.
