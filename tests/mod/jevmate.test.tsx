@@ -45,6 +45,7 @@ type World = {
   delegate?: object
   summary?: object
   usage?: object
+  compact?: object
   calls: string[][]
   stdins: string[]
   store: Map<string, unknown>
@@ -82,6 +83,7 @@ function world(on: On, w: World) {
     if (e.argv.includes('route')) return { value: ok(JSON.stringify(w.route ?? { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 })) }
     if (e.argv.includes('delegate')) return { value: ok(JSON.stringify(w.delegate ?? { reading: 0.2 })) }
     if (e.argv.includes('record')) return { value: ok('') }
+    if (e.argv.includes('compact')) return { value: ok(JSON.stringify(w.compact ?? { changes: [] })) }
     return { value: ok(JSON.stringify(w.summary ?? SUMMARY)) }
   })
   // What other mods would draw in the band: it has to stay under ours.
@@ -464,5 +466,94 @@ describe('low effort on routine turns', () => {
     await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
     await turn($, 'r1', 'rename the helper in utils.py and fix the two call sites, nothing else')
     expect(efforts).toEqual(['default'])
+  })
+})
+
+describe('compaction', () => {
+  const BIG = 'x'.repeat(2000)
+  const MSGS = [
+    { role: 'user', text: 'fix the retry bug in the outbox', toolUses: [], handle: 'h1' },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'u1', tool: 'Bash', input: { command: 'du -sh *' }, text: BIG }], handle: 'h2' },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'u1', text: BIG, isError: false }], handle: 'h3' },
+    { role: 'assistant', text: 'Found it.', toolUses: [], handle: 'h4' },
+  ]
+  const STUB = '[jev compact] Bash du -sh *: 1 lines, ~602 tokens, moved out before a compaction. The full text is at /home/someone/.config/jev/compacted/session-abcdef12-1/001-Bash.txt'
+  const SUMMARY_MSG = { role: 'user', text: 'what happened so far', toolUses: [] }
+  const usage = (cacheRead: number, input: number) => ({ input_tokens: input, output_tokens: 900, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
+  const start = ($: any) => $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  test('off by default: Claude Code summarizes the conversation as it is', async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    let seen: unknown = null
+    on('session.compact', (_$, e) => {
+      seen = e.messages
+      return { messages: [SUMMARY_MSG] }
+    })
+    await start($)
+    await $.session.compact({ trigger: 'manual', messages: MSGS } as never)
+    expect(seen).toEqual(MSGS)
+    expect(w.calls.some(a => a.includes('compact'))).toBe(false)
+  })
+
+  test('learns from the first compaction whether pruning before the summary pays', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    let seen: unknown = null
+    on('session.compact', (_$, e) => {
+      seen = e.messages
+      return { messages: [SUMMARY_MSG], usage: usage(1000, 150000) }
+    })
+    await start($)
+    await $.session.compact({ trigger: 'auto', messages: MSGS } as never)
+    expect(seen).toEqual(MSGS)
+    expect((w.store.get('compact_cache') as { verdict: string }).verdict).toBe('pays')
+    expect(w.stdins.some(x => x.includes('"hook":"compact-cache"') && x.includes('pays'))).toBe(true)
+  })
+
+  test('never prunes where the summarizer reads the conversation from the cache', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    on('session.compact', () => ({ messages: [SUMMARY_MSG], usage: usage(140000, 2000) }))
+    await start($)
+    await $.session.compact({ trigger: 'auto', messages: MSGS } as never)
+    expect((w.store.get('compact_cache') as { verdict: string }).verdict).toBe('costs')
+  })
+
+  test('once it pays, the summarizer reads the conversation with stale results moved out', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w: World = { ...fresh({ compact_cache: { version: '2.1.287', verdict: 'pays' } }), compact: { changes: [{ id: 'u1', kind: 'result', text: STUB }] } }
+    world(on, w)
+    let seen: any[] = []
+    on('session.compact', (_$, e) => {
+      seen = [...e.messages]
+      return { messages: [SUMMARY_MSG] }
+    })
+    await start($)
+    await $.session.compact({ trigger: 'auto', messages: MSGS } as never)
+    expect(w.calls.some(a => a.includes('compact') && a.includes('--messages') && a.includes('--apply'))).toBe(true)
+    expect(seen[0]).toEqual(MSGS[0])
+    expect(seen[3]).toEqual(MSGS[3])
+    expect(seen[1].handle).toBeUndefined()
+    expect(seen[1].toolUses[0].text).toBe(STUB)
+    expect(seen[2].toolResults[0].text).toBe(STUB)
+    expect(seen[2].toolResults[0].tool_use_id).toBe('u1')
+  })
+
+  test('a summary computed ahead of time is skipped while pruning is on', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w = fresh({ compact_cache: { version: '2.1.287', verdict: 'pays' } })
+    world(on, w)
+    on('session.compact', () => ({ messages: [SUMMARY_MSG] }))
+    await start($)
+    const result = (await $.session.compact({ trigger: 'precompute', messages: MSGS } as never)) as { skip?: string }
+    expect(result.skip).toBeDefined()
+  })
+
+  test('a saved result read again is counted', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w = fresh()
+    world(on, w)
+    on('tool.call', { tool: 'Read' }, () => ({ result: { type: 'text', file: { filePath: 'x', content: 'y', numLines: 1, startLine: 1, totalLines: 1 } } }) as never)
+    await start($)
+    await $.tool.call({ tool: 'Read', file_path: '/home/someone/.config/jev/compacted/session-abcdef12-1/001-Bash.txt' } as never)
+    expect(w.stdins.some(x => x.includes('"hook":"compact-reread"'))).toBe(true)
   })
 })
