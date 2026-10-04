@@ -450,3 +450,67 @@ class ModChannel(unittest.TestCase):
         with mock.patch.dict("os.environ", {"JEV_ROUTE_MODE": "model"}):
             code, out, _, _ = run(["hook", "route"], stdin=json.dumps({"prompt": prompt, "session_id": "s"}))
         self.assertIn("jev route", json.loads(out)["hookSpecificOutput"]["additionalContext"], "the old model mode reads as hint")
+
+
+class ApiNotice(unittest.TestCase):
+    def setUp(self):
+        self.home = fresh_home()
+
+    def guard(self, transport=None, session="abcdef12-0000", cmd="mv maybe.txt old.txt"):
+        payload = {"tool_name": "Bash", "tool_input": {"command": cmd}, "permission_mode": "default", "session_id": session, "cwd": str(self.home)}
+        return run(["hook", "guard"], transport=transport, stdin=json.dumps(payload))
+
+    def delegate(self, transport):
+        return run(["hook", "delegate"], transport=transport, stdin=json.dumps({"prompt": "find where the retry helper is defined and list its callers",
+                                                                                "subagent_type": "Explore", "session_id": "abcdef12-0000"}))
+
+    def stop(self):
+        return run(["hook", "stop"], stdin=json.dumps({"hook_event_name": "Stop", "session_id": "abcdef12-0000", "last_assistant_message": "done"}))
+
+    def told(self, out):
+        return json.loads(out).get("systemMessage", "") if out.strip() else ""
+
+    def test_a_failure_is_told_once_a_session(self):
+        code, out, _, _ = self.guard(FakeTransport([402]))
+        self.assertEqual(code, 0)
+        self.assertIn("Jev could not judge (HTTP 402: scripted 402)", self.told(out))
+        self.assertIn("the guard included", self.told(out))
+        self.assertEqual(self.guard(FakeTransport([402]))[1], "", "once a session")
+        self.assertIn("HTTP 402", self.told(self.guard(FakeTransport([402]), session="99999999-0000")[1]), "each session hears it")
+        self.assertIn("HTTP 503", self.told(self.guard(FakeTransport([503]))[1]), "and again when the failure changes")
+
+    def test_what_the_mod_meets_waits_for_a_hook_the_person_sees(self):
+        code, out, _, t = self.delegate(FakeTransport([402]))
+        self.assertEqual((len(t.calls), json.loads(out)), (1, {"reading": None}), "the mod reads this line; nobody else sees it")
+        self.assertIn("HTTP 402", self.told(self.stop()[1]), "the Stop hook makes no call and still passes it on")
+        self.assertEqual(self.stop()[1], "")
+
+    def test_it_says_when_jev_judges_again(self):
+        self.guard(FakeTransport([402]), cmd="rm -rf yes-build")
+        code, out, _, _ = self.guard(FakeTransport(), cmd="rm -rf yes-build")
+        self.assertIn("Jev judges again", self.told(out))
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask", "added to the hook's own answer")
+        self.assertIn("Jev could not judge", self.told(self.guard(FakeTransport([402]), cmd="rm -rf yes-dist")[1]), "a new failure is told again")
+        self.assertEqual(self.stop()[1], "")
+
+    def test_a_failure_nobody_was_told_of_is_forgotten_once_jev_answers(self):
+        self.delegate(FakeTransport([402]))
+        self.delegate(FakeTransport())
+        self.assertEqual(self.stop()[1], "")
+
+    def test_no_key(self):
+        env = {k: v for k, v in os.environ.items() if k != "TYPESAFE_API_KEY"}
+        with mock.patch.dict("os.environ", env, clear=True):
+            code, out, _, t = self.guard()
+        self.assertEqual(t.calls, [])
+        self.assertIn("Jev could not judge (no API key)", self.told(out))
+
+    def test_the_reason_in_a_few_words(self):
+        from jev.errors import AuthError, JevError, NetworkError
+        from jev.hooks import _api_reason
+        body = '{"error":{"message":"This account never purchased credits. Make sure your key is on the correct account.","code":402}}'
+        self.assertEqual(_api_reason(JevError("HTTP 402: " + body)), "HTTP 402: This account never purchased credits")
+        self.assertEqual(_api_reason(NetworkError("network error after 1 attempt(s): [Errno 61] Connection refused")),
+                         "network error after 1 attempt(s): [Errno 61] Connection refused")
+        self.assertEqual(_api_reason(AuthError("HTTP 401: the API key was rejected (env TYPESAFE_API_KEY). nope")),
+                         "HTTP 401: the API key was rejected (env TYPESAFE_API_KEY)")

@@ -37,6 +37,7 @@ the uncertain band is cut, never moved out. Every large result is saved under th
 work still needs and says where the rest is; without Jev it only says where. `jev compact` shows the plan for any session; `--report` counts how
 often a result moved out was read again.
 
-Both fail open on any error and log one JSON line per decision to hooks.log. `jev hooks tune`
+Both fail open on any error and log one JSON line per decision to hooks.log. When Jev cannot judge
+(no key, no credit, no network), the hooks warn the person once a session, and say when it answers again. `jev hooks tune`
 reads the guard's asks and what followed, and proposes this machine's ask bar once it has twenty
 pairs.

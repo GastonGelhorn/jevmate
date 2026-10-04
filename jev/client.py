@@ -33,7 +33,7 @@ def serialize(body: dict) -> bytes:
 
 class Client:
     def __init__(self, api_key: str | None = None, model: str | None = None, timeout: float = 30.0, retries: int = 5,
-                 base_url: str | None = None, record: bool = True, label: str = "lib", transport=None):
+                 base_url: str | None = None, record: bool = True, label: str = "lib", transport=None, on_call=None):
         self.base_url = (base_url or settings.base_url()).rstrip("/")
         try:
             self.api_key, self.key_source = settings.resolve_key(api_key)
@@ -53,6 +53,7 @@ class Client:
         self.last_request_id = ""
         self.last_attempts = 0
         self._transport = transport
+        self.on_call = on_call  # told of every request that went out: None when it was answered, the error when it failed
 
     @property
     def transport(self):
@@ -86,8 +87,12 @@ class Client:
             resp = self._call("POST", settings.ENDPOINT, payload)
         except JevError as e:
             self._record(None, len(questions), err=e)
+            if self.on_call:
+                self.on_call(e)
             raise
         self._record(resp, len(questions))
+        if self.on_call:
+            self.on_call(None)
         if use_cache and isinstance(resp.get("answers"), dict):
             cache.put(key, resp)
         return resp

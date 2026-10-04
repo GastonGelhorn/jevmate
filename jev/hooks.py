@@ -98,15 +98,27 @@ def _opt(key: str, env: str, default: str) -> str:
     return v if v not in (None, "") else default
 
 
+_READ: dict = {}   # this run's payload, parsed once
+_CALLS: list = []  # this run's requests to the API: None for each one answered, the error for each one that failed
+_FOR_MOD = False   # the mod asked (`judge: true`): it reads the answer, the person does not see it
+
+
 def _payload() -> dict | None:
+    """The hook's stdin, parsed once a run: by the handler, and by the notice after it when the handler returned early."""
+    global _FOR_MOD
+    if "p" in _READ:
+        return _READ["p"]
     try:
         p = json.load(sys.stdin)
     except Exception:  # noqa: BLE001
-        return None
+        p = None
     if not isinstance(p, dict):
-        return None
-    if p.get("session_id") and not os.environ.get("JEV_AGENT"):
-        os.environ["JEV_AGENT"] = "session:" + str(p["session_id"])[:8]  # attributes the ledger row to the session
+        p = None
+    else:
+        if p.get("session_id") and not os.environ.get("JEV_AGENT"):
+            os.environ["JEV_AGENT"] = "session:" + str(p["session_id"])[:8]  # attributes the ledger row to the session
+        _FOR_MOD = bool(p.get("judge"))
+    _READ["p"] = p
     return p
 
 
@@ -164,7 +176,12 @@ def _emit(event: str, **fields) -> None:
 
 def _client(label: str, timeout_env: str, default: str):
     from .client import Client
-    return Client(timeout=float(os.environ.get(timeout_env, default)), retries=0, label=label)
+    from .errors import JevError
+    try:
+        return Client(timeout=float(os.environ.get(timeout_env, default)), retries=0, label=label, on_call=_CALLS.append)
+    except JevError as e:  # no key: the person hears of it like any other failure
+        _CALLS.append(e)
+        raise
 
 
 def _host(p: dict | None = None) -> str:
@@ -904,15 +921,106 @@ def delegate() -> int:
     return 0
 
 
+# ---------------------------------------------------------------- when the API fails
+
+def _api_kind(e: Exception) -> str:
+    m = re.match(r"HTTP (\d{3})", str(e))
+    return f"{type(e).__name__}:{m.group(1) if m else ''}"
+
+
+def _api_reason(e: Exception) -> str:
+    """The failure in a few words: the status and the first sentence of the API's own message, when it sent one."""
+    text = mask_secrets(str(e))
+    status = re.match(r"HTTP (\d{3})", text)
+    said = re.search(r'"(?:message|error)"\s*:\s*"((?:[^"\\]|\\.){1,300})', text)
+    if said:
+        first = said.group(1).replace('\\"', '"').split(". ")[0].rstrip(".")
+        return f"HTTP {status.group(1)}: {first}" if status else first
+    return text.split(". ")[0][:200]
+
+
+def _api_notice(deliver: bool) -> str:
+    """What the person should hear about the API after this run: that it failed and why, once a session and
+    again when the failure changes, then that it answers again. A run whose output nobody sees (the mod's)
+    leaves it for the next hook that can show it."""
+    from . import ledger, settings
+    tag = ledger.agent_tag()
+    if not tag.startswith("session:"):
+        return ""
+    path = settings.SESSIONS_DIR / f"{tag.replace(':', '-')}.api.json"
+    try:
+        before = json.loads(path.read_text())
+    except (OSError, ValueError):
+        before = None
+    state = before
+    if _CALLS and _CALLS[-1] is not None:
+        e = _CALLS[-1]
+        if not (state and state.get("kind") == _api_kind(e) and state.get("told")):
+            state = {"kind": _api_kind(e), "told": False,
+                     "msg": f"jev: Jev could not judge ({_api_reason(e)}). Until it can, jev's hooks let everything through "
+                            "unchecked, the guard included. `jev doctor` checks the key and the backend."}
+    elif _CALLS and state and state.get("kind") != "ok":
+        state = {"kind": "ok", "told": False, "msg": "jev: Jev judges again, so the hooks check again."} if state.get("told") else None
+    msg = ""
+    if state and deliver and not state.get("told"):
+        msg = state["msg"]
+        state = None if state["kind"] == "ok" else {**state, "told": True}
+    if state != before:
+        try:
+            if state is None:
+                path.unlink(missing_ok=True)
+            else:
+                settings.SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(state))
+        except OSError:
+            pass
+    return msg
+
+
+def _with_notice(which: str, out: str) -> str:
+    """The hook's answer with that notice added as `systemMessage`, the warning Claude Code and Codex show
+    to the person on every hook event. Output that is not one JSON object is left alone."""
+    _payload()  # the session, when the handler returned before reading it
+    shown = None
+    if which not in ("record", "delegate") and not _FOR_MOD:
+        try:
+            shown = json.loads(out) if out.strip() else {}
+        except ValueError:
+            shown = None
+        if not isinstance(shown, dict):
+            shown = None
+    msg = _api_notice(deliver=shown is not None)
+    if not msg:
+        return out
+    shown["systemMessage"] = f"{shown['systemMessage']}\n{msg}" if shown.get("systemMessage") else msg
+    return json.dumps(shown) + "\n"
+
+
 HANDLERS = {"guard": guard, "screen": screen, "after-bash": after_bash, "route": route, "stop": stop, "session-start": session_start,
             "record": record, "delegate": delegate, "pre-compact": pre_compact}
 
 
 def run(which: str) -> int:
+    global _FOR_MOD
     fn = HANDLERS.get(which)
     if fn is None:
         return 2
+    import contextlib
+    import io
+    _READ.clear()
+    _CALLS.clear()
+    _FOR_MOD = False
+    buf = io.StringIO()
+    code = 0
     try:
-        return fn()
+        with contextlib.redirect_stdout(buf):
+            code = fn()
     except Exception:  # noqa: BLE001  a hook must never break the tool call
-        return 0
+        code = 0
+    out = buf.getvalue()
+    try:
+        out = _with_notice(which, out)
+    except Exception:  # noqa: BLE001
+        pass
+    sys.stdout.write(out)
+    return code
