@@ -39,7 +39,7 @@ def register(sub) -> None:
     hk.set_defaults(fn=cmd_hooks)
 
     h = sub.add_parser("hook", help="run one hook (Claude Code calls this; the payload arrives on stdin)")
-    h.add_argument("which", choices=["guard", "screen", "after-bash", "route", "stop", "session-start", "record", "delegate"])
+    h.add_argument("which", choices=["guard", "screen", "after-bash", "route", "stop", "session-start", "record", "delegate", "pre-compact"])
     h.set_defaults(fn=cmd_hook)
 
     sl = sub.add_parser("statusline", help="install | uninstall | status | preview | render the Claude Code status line (terminal CLI)",

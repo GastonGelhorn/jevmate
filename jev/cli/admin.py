@@ -28,6 +28,7 @@ CONFIG_KEYS = {
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
     "backend": ("backend", str, "typesafe | openrouter | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
+    "compact": ("compact_mode", str, "on | off: judge the large tool results before Claude Code or Codex compacts (the plugin's compact_mode wins)"),
 }
 
 

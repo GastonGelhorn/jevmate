@@ -40,6 +40,7 @@ claude code
   jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch (plain CLI installs; the plugin wires its own)
   jev statusline install        the session's cost next to what jev decided, under the prompt (terminal CLI)
   jev inspect                   installed skills, plugins and agents read for instructions aimed at an agent (also at session start)
+  jev compact [--codex]         what a compaction would keep, cut and move to disk; --report: how often a moved result was read again
   jev q list|save|show          saved questions: a phrasing with its measured threshold and band (jev tune --save NAME; --q NAME anywhere)
   jev mcp                       the same decisions as MCP tools (the plugin runs it)
 
@@ -59,6 +60,7 @@ COMMANDS = {
     "schema": "admin", "usage": "admin", "version": "admin",
     "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude", "inspect": "claude",
     "q": "library", "mcp": "library",
+    "compact": "compact",
     "guide": "docs", "examples": "docs", "docs": "docs",
 }
 
@@ -82,7 +84,7 @@ def main(argv=None) -> int:
         print(f"jev {VERSION}")
         return 0
     # Claude Code runs these on every tool call and every state change: no parser, no command modules.
-    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen", "after-bash", "route", "stop", "session-start", "record", "delegate"):
+    if len(argv) == 2 and argv[0] == "hook" and argv[1] in ("guard", "screen", "after-bash", "route", "stop", "session-start", "record", "delegate", "pre-compact"):
         from ..hooks import run
         return run(argv[1])
     if argv == ["statusline", "render"]:
