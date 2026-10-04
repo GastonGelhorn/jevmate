@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2
+
+When Jev cannot judge, the person hears of it. The hooks failed open in silence: with no key, no
+credit or no network every command went through unchecked and only hooks.log knew. Now the next hook
+whose answer the person sees carries a warning with the reason (`HTTP 402: Insufficient credits`),
+once a session and again if the reason changes, and one more line when Jev answers again. In Codex
+too.
+
 ## 1.6.1
 
 The block after a compaction repeats only what Jev judged the work still needs. The ten latest
