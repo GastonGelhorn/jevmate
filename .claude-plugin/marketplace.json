@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "jevmate: a fast decision layer for coding agents",
-    "version": "1.5.4"
+    "version": "1.6.0"
   },
   "plugins": [
     {
       "name": "jevmate",
       "source": "./",
-      "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures and reviews diffs, so the expensive model reads only what matters. Measured thresholds.",
+      "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures and reviews diffs, and keeps what the work needs through a compaction, so the expensive model reads only what matters. Measured thresholds.",
       "category": "productivity",
       "tags": [
         "decisions",

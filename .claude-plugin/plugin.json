@@ -1,8 +1,8 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.5.4",
-  "description": "A fast decision layer for coding agents. Jev ranks files, picks the tests a change can break, sorts failures and reviews diffs by risk, so Claude reads only what matters and judges only what Jev is unsure of. Also: long output trimmed, safety signals on Bash and fetched content, and the session's numbers above the prompt. Thresholds measured, not guessed.",
+  "version": "1.6.0",
+  "description": "A fast decision layer for coding agents. Jev ranks files, picks the tests a change can break, sorts failures and reviews diffs by risk, so Claude reads only what matters and judges only what Jev is unsure of. Also: long output trimmed, compaction that keeps what the work still needs and saves the rest on disk, safety signals on Bash and fetched content, and the session's numbers above the prompt. Thresholds measured, not guessed.",
   "author": {
     "name": "Gaston Gelhorn",
     "email": "gastongelhorn@gmail.com"
@@ -119,6 +119,16 @@
       "title": "Trim long command output",
       "description": "on: command output above ~4,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
       "default": "on"
+    },
+    "compact_mode": {
+      "type": "string",
+      "title": "Compaction that keeps what the work needs (opt-in)",
+      "description": "on: before Claude Code compacts the conversation, every tool result over ~1,500 characters is judged. Rules settle a file read again or edited later, a command run again and an error a retry fixed; Jev settles the rest against what you asked. Each result is saved on disk; after the compaction a short block (~2,500 tokens at most) repeats the ones the work still needs and says where the rest is. Once jev has measured that Claude Code's summarizer pays for its whole input, it also hands the summarizer the conversation with stale results moved out. The latest results and everything you and Claude wrote are never touched. off (default): Claude Code compacts on its own.",
+      "default": "off",
+      "options": [
+        "off",
+        "on"
+      ]
     },
     "inspect_mode": {
       "type": "string",

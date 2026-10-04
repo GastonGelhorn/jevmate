@@ -81,6 +81,17 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook pre-compact 2>/dev/null || py -3 \"${CLAUDE_PLUGIN_ROOT}/bin/jev\" hook pre-compact",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }

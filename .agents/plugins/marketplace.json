@@ -1,0 +1,20 @@
+{
+  "name": "gastongelhorn",
+  "interface": {
+    "displayName": "Gaston Gelhorn"
+  },
+  "plugins": [
+    {
+      "name": "jevmate",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/GastonGelhorn/jevmate.git"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "jevmate",
+  "version": "1.6.0",
+  "description": "A fast decision layer for coding agents: Jev ranks files, picks tests, sorts failures, reviews diffs and keeps what the work needs through a compaction.",
+  "author": {
+    "name": "Gaston Gelhorn",
+    "email": "gastongelhorn@gmail.com",
+    "url": "https://github.com/GastonGelhorn"
+  },
+  "homepage": "https://github.com/GastonGelhorn/jevmate",
+  "repository": "https://github.com/GastonGelhorn/jevmate",
+  "license": "MIT",
+  "keywords": [
+    "decisions",
+    "calibration",
+    "triage",
+    "tests",
+    "code-review",
+    "compaction",
+    "hooks",
+    "jev"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
+  "interface": {
+    "displayName": "jevmate",
+    "shortDescription": "Cheap, calibrated decisions before the expensive model reads anything.",
+    "longDescription": "jev is a command that answers yes/no, pick-one and rubric questions with a calibrated probability in about 250 ms. jevmate puts it in front of Codex: which files to read, which tests a change can break, which failures share a cause, which hunks are risky. Hooks trim long output, sort red test runs, screen fetched content, flag destructive commands, and judge the tool results before a compaction so the ones the work still needs come back verbatim.",
+    "developerName": "Gaston Gelhorn",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/GastonGelhorn/jevmate",
+    "defaultPrompt": [
+      "Which files under src/ should I read first to find where retries happen?",
+      "Run the tests this change can break first.",
+      "Group these test failures by cause."
+    ],
+    "brandColor": "#D97757"
+  }
+}
