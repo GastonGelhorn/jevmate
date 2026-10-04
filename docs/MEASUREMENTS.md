@@ -186,3 +186,12 @@ the 280 Codex rollouts, 7.8 GB, took 5.7 s in all, and none took longer than hal
 The rest is Jev's to judge. Its bars, kept whole from p 0.65 and cut from 0.35, are where tuning
 starts, not a measurement: `jev compact --report` counts how often a result moved out is read back
 from disk, and that rate moves them.
+
+## Compaction: what the summarizer reads from cache (2026-10-04)
+
+A manual compaction of a long coding session in Claude Code 2.1.286 sent the summarizer 825,231
+input tokens, 822,283 of them (99.6%) read from the prompt cache. A pruned conversation would have
+missed that cache and paid full price on all of it, so the mod recorded `costs` for that version and
+leaves the summarizer's input whole there. On that build what compaction gains is the saved results
+and the block after it, not a cheaper summary; another build is measured again on its first
+compaction.
