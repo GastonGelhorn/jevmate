@@ -1,7 +1,7 @@
 {
   "name": "jevmate",
   "displayName": "jevmate",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "A fast decision layer for coding agents. Jev ranks files, picks the tests a change can break, sorts failures and reviews diffs by risk, so Claude reads only what matters and judges only what Jev is unsure of. Also: long output trimmed, compaction that keeps what the work still needs and saves the rest on disk, safety signals on Bash and fetched content, and the session's numbers above the prompt. Thresholds measured, not guessed.",
   "author": {
     "name": "Gaston Gelhorn",
