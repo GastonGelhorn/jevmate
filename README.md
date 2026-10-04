@@ -124,8 +124,8 @@ marks text without blocking it. Each logs one line per decision (`jev hooks stat
 **Compaction**, opt-in with `compact_mode`. Before Claude Code compacts the conversation, every large
 tool result in it is judged: rules settle a file read again or edited later, a command run again and
 an error a retry fixed, and Jev judges the rest against what you asked. Each one is saved on disk.
-After the compaction a short block repeats the results the work still needs and lists where the
-others are, so nothing the summary drops is lost. Once jev has measured that the summarizer pays for
+After the compaction a short block repeats the results Jev judged the work still needs and lists
+where the others are, so nothing the summary drops is lost. Once jev has measured that the summarizer pays for
 its whole input, it also hands the summarizer the conversation with the stale results moved out.
 Your words, Claude's and the latest results are never touched; `jev compact` shows what it would do
 to any session, Claude Code's or Codex's.

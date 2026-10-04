@@ -79,11 +79,12 @@ Seven events. All fail open; the bars come from the plugin's settings (`/config`
   later (by the Read tool, a shell read such as `cat` or `sed -n`, an edit or a patch), a command run
   again, an error a retry fixed. Jev judges the rest, each result inside its own question, against
   the person's last three prompts and the agent's last message: kept whole at p >= 0.65, cut to its
-  head and tail from 0.35, moved out below. The ten latest large results are never judged. Every large
-  result is saved under `compacted/` in the jev home, and when SessionStart fires with `source:
-  compact` it adds a block of at most 2,500 tokens: the latest results and the ones Jev judged still
-  needed, verbatim or cut, then where the rest are. Without a key or a backend the rules still decide
-  and everything else stays whole. A read of one of those files later is logged as a result moved out
+  head and tail from 0.35, moved out below. The ten latest large results are never touched, only
+  judged for the block. Every large result is saved under `compacted/` in the jev home, and when
+  SessionStart fires with `source: compact` it adds a block of at most 2,500 tokens: the results Jev
+  judged still needed, the surest first, verbatim or cut, then where the rest are. Without a key or a
+  backend the rules still decide, everything else stays whole and the block repeats nothing: recency
+  alone cannot tell the file about to change from the output of a task already finished. A read of one of those files later is logged as a result moved out
   too eagerly; `jev compact --report` gives the rate, which is what the two bars are tuned against.
 
 ## The mod
