@@ -127,7 +127,7 @@ class Stop(unittest.TestCase):
         self.assertEqual((out, t.calls), ("", []), "off by default")
         with mock.patch.dict("os.environ", {"JEV_HONESTY_MODE": "on"}):
             code, out, _, _ = run(["hook", "stop"], stdin=json.dumps(payload))
-            self.assertEqual(json.loads(out)["hookSpecificOutput"]["decision"], "block")
+            self.assertEqual(json.loads(out)["decision"], "block")
             code, out, _, _ = run(["hook", "stop"], stdin=json.dumps({**payload, "stop_hook_active": True}))
             self.assertEqual(out, "", "never twice in a row")
             backed = {**payload, "transcript_path": self.transcript(["pytest -q yes"])}
@@ -295,7 +295,7 @@ class StopEvidence(unittest.TestCase):
             code, out, _, t = run(["hook", "stop"], stdin=json.dumps({**base, "transcript_path": self.transcript(["pytest -q"])}))
             self.assertEqual((out, t.calls), ("", []), "a runner ran: no model call, no block")
             code, out, _, t = run(["hook", "stop"], stdin=json.dumps({**base, "transcript_path": self.transcript(["ls -la"])}))
-            self.assertEqual(json.loads(out)["hookSpecificOutput"]["decision"], "block")
+            self.assertEqual(json.loads(out)["decision"], "block")
             self.assertEqual(len(t.calls), 1)
             code, out, _, t = run(["hook", "stop"], stdin=json.dumps({**base, "last_assistant_message": "I changed the file and left a note, yes.", "transcript_path": self.transcript([])}))
             self.assertEqual((out, t.calls), ("", []), "no claim of a passed check: nothing to verify")
