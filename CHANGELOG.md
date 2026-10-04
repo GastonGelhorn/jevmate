@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.1
+
+The block after a compaction repeats only what Jev judged the work still needs. The ten latest
+results used to come back first on recency alone, and after a finished task that was its output;
+they are still never touched, but they are judged with the rest. Without Jev the block repeats
+nothing and lists where every result was saved.
+
 ## 1.6.0
 
 Compaction that keeps what the work needs (`compact_mode`, off by default; `jev compact`). Before
