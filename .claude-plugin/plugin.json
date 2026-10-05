@@ -123,11 +123,12 @@
     "compact_mode": {
       "type": "string",
       "title": "Compaction that keeps what the work needs (opt-in)",
-      "description": "on: before Claude Code compacts the conversation, every tool result over ~1,500 characters is judged. Rules settle a file read again or edited later, a command run again and an error a retry fixed; Jev settles the rest against what you asked. Each result is saved on disk; after the compaction a short block (~2,500 tokens at most) repeats the ones the work still needs and says where the rest is. Once jev has measured that Claude Code's summarizer pays for its whole input, it also hands the summarizer the conversation with stale results moved out. The latest results and everything you and Claude wrote are never touched. off (default): Claude Code compacts on its own.",
+      "description": "on: before Claude Code compacts the conversation, every tool result over ~1,500 characters is judged. Rules settle a file read again or edited later, a command run again and an error a retry fixed; Jev settles the rest against what you asked. Each result is saved on disk; after the compaction a short block (~2,500 tokens at most) repeats the ones the work still needs and says where the rest is. Once jev has measured that Claude Code's summarizer pays for its whole input, it also hands the summarizer the conversation with stale results moved out. The latest results and everything you and Claude wrote are never touched. auto: on, and jev also compacts in the background once the context passes 200k tokens: after 55 minutes without a request, while the prompt cache still holds the conversation (you come back to a small one), and right after a turn whose prompt Jev judges to start other work, while you read the answer. What those save is counted on the line above the prompt. off (default): Claude Code compacts on its own.",
       "default": "off",
       "options": [
         "off",
-        "on"
+        "on",
+        "auto"
       ]
     },
     "inspect_mode": {

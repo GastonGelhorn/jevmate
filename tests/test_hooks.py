@@ -533,3 +533,57 @@ class ApiNotice(unittest.TestCase):
                          "network error after 1 attempt(s): [Errno 61] Connection refused")
         self.assertEqual(_api_reason(AuthError("HTTP 401: the API key was rejected (env TYPESAFE_API_KEY). nope")),
                          "HTTP 401: the API key was rejected (env TYPESAFE_API_KEY)")
+
+
+class AutoCompaction(unittest.TestCase):
+    """compact_mode auto: the mod's question before it compacts on its own, its row, and what the session counts as saved."""
+
+    def setUp(self):
+        self.home = fresh_home()
+
+    def shift(self, transport=None, **payload):
+        return run(["hook", "shift"], transport=transport, stdin=json.dumps({"session_id": "abcdef12-0000", "judge": True, **payload}))
+
+    def test_shift_needs_earlier_work_to_compare_with(self):
+        code, out, _, t = self.shift(prompt="now write the release notes for the outbox change")
+        self.assertEqual((json.loads(out), t.calls), ({"p": None}, []))
+        key = FAKE_OR_KEY_3
+        code, out, _, t = self.shift(prompt=f"yes, a new feature: export the invoices to csv with token {key}", asked=["fix the retry bug in the outbox"],
+                                     answered="Fixed; the retry now backs off.")
+        self.assertEqual(json.loads(out), {"p": 0.9})
+        self.assertNotIn(key, t.calls[-1][2].decode())
+        self.assertNotIn("systemMessage", out, "the mod reads this line; nobody else sees it")
+
+    def test_the_row_prices_the_summary_and_says_whether_the_cache_had_expired(self):
+        usage = {"input_tokens": 290000, "output_tokens": 6000, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        run(["hook", "record"], stdin=json.dumps({"hook": "compact-auto", "session_id": "abcdef12-0000", "reason": "idle", "before": 300000,
+                                                  "after": 30000, "model": "claude-opus-5-5", "usage": usage}))
+        row = [r for r in ledger.hook_rows() if r.get("hook") == "compact-auto"][-1]
+        from jev.metrics import price_for
+        pi, po, _, _ = price_for("claude-opus-5-5")
+        self.assertAlmostEqual(row["spent"], (290000 * pi + 6000 * po) / 1e6, places=5)
+        self.assertTrue(row["cold"])
+        self.assertNotIn("usage", row)
+
+    def test_the_saving_counts_every_request_until_the_next_compaction(self):
+        from datetime import datetime, timedelta, timezone
+        from types import SimpleNamespace
+        from jev.metrics import auto_compactions, price_for, to_utc
+        start = datetime.fromisoformat(to_utc("2026-10-05T10:00:00")).replace(tzinfo=timezone.utc)
+        at = lambda s: (start + timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%S")  # noqa: E731
+        m = "claude-opus-5-5"
+        _, _, cr, cw = price_for(m)
+        # compacted while idle, 55 minutes after the last request
+        idle = {"ts": "2026-10-05T10:00:00", "reason": "idle", "before": 300000, "after": 30000, "spent": 0.5,
+                "last_at": (start - timedelta(minutes=55)).timestamp() * 1000, "ttl_min": 60}
+        late = SimpleNamespace(turns=[(at(-3300), m, 300000), (at(1800), m, 32000), (at(1860), m, 34000), (at(1920), m, 36000), (at(4000), m, 9000)],
+                               compactions=[at(-1), at(3000)])
+        got = auto_compactions([idle], late)
+        self.assertEqual((got["runs"], got["idle"], got["requests"]), (1, 1, 3), "the request after the next compaction is not counted")
+        self.assertAlmostEqual(got["saved_usd"], (270000 * cw + 2 * 270000 * cr) / 1e6 - 0.5, places=5,
+                               msg="back after the cache would have gone: the whole context was not written again")
+        soon = SimpleNamespace(turns=[(at(120), m, 32000), (at(180), m, 34000)], compactions=[at(-1)])
+        self.assertAlmostEqual(auto_compactions([idle], soon)["saved_usd"], (300000 * cr - 30000 * cw + 270000 * cr) / 1e6 - 0.5, places=5,
+                               msg="back while it would still have held: the first request would have read it from the cache")
+        self.assertAlmostEqual(auto_compactions([{**idle, "after": 0}], late)["saved_usd"], -0.5, msg="without the size after, only the cost is known")
+        self.assertAlmostEqual(auto_compactions([idle], SimpleNamespace(turns=[], compactions=[]))["saved_usd"], -0.5, msg="nobody came back")

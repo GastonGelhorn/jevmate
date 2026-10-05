@@ -236,6 +236,46 @@ def would_have_cost(events: list[tuple[str | None, int]], turns: list[tuple[str,
     return once, reread
 
 
+def _would_have_expired(r: dict, first_utc: str) -> bool:
+    """Without the compaction, would the prompt cache have expired by the first request after it? The time since
+    the last request before it, against the cache lifetime the mod assumed."""
+    try:
+        last = datetime.fromtimestamp(float(r["last_at"]) / 1000, timezone.utc)
+        first = datetime.fromisoformat(first_utc).replace(tzinfo=timezone.utc)
+        return (first - last).total_seconds() >= 60 * float(r.get("ttl_min") or 60)
+    except (KeyError, TypeError, ValueError):
+        return r.get("reason") == "idle"
+
+
+def auto_compactions(rows: list[dict], transcript: Transcript | None) -> dict:
+    """The compactions the mod started itself (compact_mode auto) and what they saved so far. Every request after
+    one re-read the smaller context instead of the larger, until the next compaction; the first is priced as it
+    would have gone without it: the whole context written again when the prompt cache would have expired by then,
+    read from the cache when it would not. Less what the summary cost."""
+    out = {"runs": len(rows), "idle": 0, "shift": 0, "requests": 0, "saved_usd": 0.0}
+    turns = transcript.turns if transcript is not None else []
+    marks = transcript.compactions if transcript is not None else []
+    for r in rows:
+        reason = str(r.get("reason") or "")
+        if reason in ("idle", "shift"):
+            out[reason] += 1
+        net = -float(r.get("spent") or 0)
+        before, after = int(r.get("before") or 0), int(r.get("after") or 0)
+        start = to_utc(str(r.get("ts") or ""))
+        if start and before > after > 0:
+            nxt = next((c for c in marks if c > start), None)
+            later = [(ts, model) for ts, model, _ in turns if ts > start and (nxt is None or ts < nxt)]
+            if later:
+                _, _, p_cr, p_cw = price_for(later[0][1])
+                gone = _would_have_expired(r, later[0][0])
+                net += ((before - after) * p_cw if gone else before * p_cr - after * p_cw) / 1e6
+                net += sum((before - after) * price_for(model)[2] for _, model in later[1:]) / 1e6
+                out["requests"] += len(later)
+        out["saved_usd"] += net
+    out["saved_usd"] = round(out["saved_usd"], 6)
+    return out
+
+
 def _top(counts: dict[str, int]) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
@@ -293,12 +333,13 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
                "freed": sum(int(h.get("freed") or 0) for h in comps), "restored": sum(int(h.get("restored") or 0) for h in comps),
                "rereads": len(kinds("compact-reread")), "pruned": sum(1 for h in comps if h.get("pruned")),
                "saved_usd": sum(float(h.get("saved_usd") or 0) for h in comps)}
+    compact["auto"] = auto_compactions(kinds("compact-auto"), transcript)
     saved = would - paid_reads
     from .hooks import api_status
     return {"api": api_status(tag), "requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
-            "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
+            "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"] + compact["auto"]["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
             "pricing": pricing, "agent_price": flat if flat is not None else settings.agent_price(), "compactions": len(transcript.compactions) if transcript else 0,
             "labels": _top(labels), "hook_labels": _top(hook_labels)}
 
@@ -560,10 +601,19 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         verdict = {"keeps": "the prompt cache survives it", "rewrites": "it re-wrote the prompt cache, so it is off"}.get(ro["effort_cache"] or "", "the cache check is pending")
         lines.append(f"  {b}low effort{r0}         {ro['effort_turns']} routine turn(s){dim} · {verdict}{r0}")
     co = j.get("compact") or {}
-    if co.get("runs"):
-        lines.append(f"  {b}compaction{r0}         {co['runs']} judged · {co['judged']} large results: {co['moved']} moved to disk, {co['cut']} cut, {co['kept']} kept"
-                     + (f" · {g}~${co['saved_usd']:.2f}{eq} off the summary{r0}" if co["saved_usd"] else "")
-                     + f"{dim} · read again later: {co['rereads']}{r0}")
+    au = co.get("auto") or {}
+    if co.get("runs") or au.get("runs"):
+        started = ""
+        if au.get("runs"):
+            why = " and ".join(x for x in (f"{au['idle']} after the cache expired" if au.get("idle") else "",
+                                           f"{au['shift']} as other work began" if au.get("shift") else "") if x)
+            net = au["saved_usd"]
+            started = (f" · {au['runs']} started by jev ({why}): " + (f"{g}~${net:.2f}{eq} saved{r0}" if net >= 0 else f"{y}${-net:.2f} spent so far{r0}")
+                       + f"{dim} over {au['requests']} request(s) since{r0}")
+        lines.append(f"  {b}compaction{r0}         {co.get('runs', 0)} judged · {co.get('judged', 0)} large results: {co.get('moved', 0)} moved to disk, "
+                     f"{co.get('cut', 0)} cut, {co.get('kept', 0)} kept"
+                     + (f" · {g}~${co['saved_usd']:.2f}{eq} off the summary{r0}" if co.get("saved_usd") else "") + started
+                     + f"{dim} · read again later: {co.get('rereads', 0)}{r0}")
     if view:
         lines.append(f"  {b}plan{r0}               {g}{plan_line(view)}{r0}{dim} · "
                      + " · ".join(f"{w.get('label') or _window_name(k)} {w['used']:g}% used at {w.get('as_of', '?')}" for k, w in view["windows"].items())

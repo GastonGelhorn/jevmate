@@ -89,6 +89,9 @@ CLAIM_Q = ("Does `reply` state that tests, a build, a check or a verification we
            "asserts the result of running something: tests pass, the build succeeds, verified, confirmed working, all green",
            "describes changes or plans, reports what was not run, or says a check still has to be done")
 RAN_Q = "Do `commands` include running the tests, build or check that `reply` says passed?"
+SHIFT_Q = ("Does `prompt` start work unrelated to what the session was doing (`asked`, `answered`), so that the details of that work are no longer needed?",
+           "a new feature, bug, file area or question that does not build on the earlier work; the person moved on",
+           "continues, fixes, extends, tests, reviews, commits or asks about the earlier work, or refers back to it (this, that, it, the same, again, also)")
 
 
 def _opt(key: str, env: str, default: str) -> str:
@@ -205,7 +208,8 @@ def _ask(p: dict | None, reason: str) -> str:
 
 
 def _compact_mode() -> str:
-    """on | off: the plugin's setting, else JEV_COMPACT_MODE, else `jev config set compact on` (Codex, plain CLI)."""
+    """off | on | auto: the plugin's setting, else JEV_COMPACT_MODE, else `jev config set compact on` (Codex, plain CLI).
+    auto is on, plus compactions the mod starts itself; the hooks do the same for both."""
     v = _opt("COMPACT_MODE", "JEV_COMPACT_MODE", "")
     if v:
         return v
@@ -823,7 +827,7 @@ def session_start() -> int:
         except Exception as e:  # noqa: BLE001
             ledger.log_hook("inspect", {"err": type(e).__name__})
     source = p.get("source", "startup")
-    if source == "compact" and _compact_mode() == "on":
+    if source == "compact" and _compact_mode() in ("on", "auto"):
         from .compact import take_restore
         block = take_restore(ledger.agent_tag())
         if block or warning:
@@ -844,7 +848,7 @@ def pre_compact() -> int:
     """Before Claude Code or Codex compacts the conversation: judge its large tool results, save them on disk and
     write the block the SessionStart hook hands over once the compaction is done. Never blocks the compaction."""
     p = _payload() or {}
-    if _compact_mode() != "on" or not p.get("transcript_path"):
+    if _compact_mode() not in ("on", "auto") or not p.get("transcript_path"):
         return 0
     from pathlib import Path
     from . import compact, ledger
@@ -870,30 +874,36 @@ def pre_compact() -> int:
 
 # ---------------------------------------------------------------- the mod's channel
 
-RECORDABLE = {"evidence", "effort", "effort-cache", "subagent", "compact", "compact-cache", "compact-reread"}
+RECORDABLE = {"evidence", "effort", "effort-cache", "subagent", "compact", "compact-cache", "compact-reread", "compact-auto"}
+
+
+def _usage_cost(u: dict, model: str) -> float:
+    from .metrics import price_for
+    pi, po, pcr, pcw = price_for(model)
+    return ((u.get("input_tokens") or 0) * pi + (u.get("output_tokens") or 0) * po
+            + (u.get("cache_read_input_tokens") or 0) * pcr + (u.get("cache_creation_input_tokens") or 0) * pcw) / 1e6
 
 
 def record() -> int:
     """One row in hooks.log on the mod's behalf: an evidence line it showed, a turn it ran at low effort,
     what lowering effort did to the prompt cache, a subagent it ran on a cheaper model (whose saving is
-    priced here, from the subagent turn's own usage, so the price table stays in one place)."""
+    priced here, from the subagent turn's own usage, so the price table stays in one place), a compaction
+    it started (the summary's own request priced, and whether it found the prompt cache expired)."""
     p = _payload() or {}
     hook = str(p.get("hook") or "")
     if hook not in RECORDABLE:
         return 0
     from . import ledger
     row = {k: v for k, v in p.items() if k not in ("hook", "session_id") and isinstance(v, (str, int, float, bool))}
+    u = p.get("usage") if isinstance(p.get("usage"), dict) else {}
     if hook == "subagent":
-        from .metrics import price_for
-        u = p.get("usage") or {}
-
-        def cost(model: str) -> float:
-            pi, po, pcr, pcw = price_for(model)
-            return ((u.get("input_tokens") or 0) * pi + (u.get("output_tokens") or 0) * po
-                    + (u.get("cache_read_input_tokens") or 0) * pcr + (u.get("cache_creation_input_tokens") or 0) * pcw) / 1e6
         parent, model = str(p.get("parent") or ""), str(p.get("model") or "")
-        row.update(spent=round(cost(model), 6), saved_usd=round(max(0.0, cost(parent) - cost(model)), 6),
+        row.update(spent=round(_usage_cost(u, model), 6), saved_usd=round(max(0.0, _usage_cost(u, parent) - _usage_cost(u, model)), 6),
                    tokens=sum(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")))
+    elif hook == "compact-auto" and u:
+        # The summary read the whole conversation: from the cache if it was still there, in full if it had expired.
+        row.update(spent=round(_usage_cost(u, str(p.get("model") or "")), 6),
+                   cold=(u.get("cache_read_input_tokens") or 0) < 0.5 * float(p.get("before") or 0))
     ledger.log_hook(hook, row)
     return 0
 
@@ -1002,7 +1012,7 @@ def _with_notice(which: str, out: str) -> str:
     to the person on every hook event. Output that is not one JSON object is left alone."""
     _payload()  # the session, when the handler returned before reading it
     shown = None
-    if which not in ("record", "delegate") and not _FOR_MOD:
+    if which not in ("record", "delegate", "shift") and not _FOR_MOD:
         try:
             shown = json.loads(out) if out.strip() else {}
         except ValueError:
@@ -1017,8 +1027,34 @@ def _with_notice(which: str, out: str) -> str:
     return json.dumps(shown) + "\n"
 
 
+def shift() -> int:
+    """The mod's question before it starts a compaction on its own (compact_mode auto): does this prompt leave the
+    earlier work behind? `asked` holds the person's prompts before it, `answered` the agent's last reply. One JSON line."""
+    p = _payload() or {}
+    prompt = str(p.get("prompt") or "").strip()
+    asked = [str(x).strip() for x in (p.get("asked") or []) if str(x).strip()][-3:]
+    if len(prompt) < 20 or not asked:
+        print(json.dumps({"p": None}))
+        return 0
+    from . import ledger
+    try:
+        from .questions import noul
+        c = _client("hook:shift", "JEV_SHIFT_TIMEOUT", "4")
+        r = c.ask({"prompt": mask_secrets(prompt[:4000]), "asked": [mask_secrets(x[:1500]) for x in asked],
+                   "answered": mask_secrets(str(p.get("answered") or "")[:1500])},
+                  {"shift": noul(SHIFT_Q[0], true=SHIFT_Q[1], false=SHIFT_Q[2])})
+        ps = float(r["answers"]["shift"]["noul"])
+    except Exception as e:  # noqa: BLE001
+        ledger.log_hook("shift", {"err": type(e).__name__})
+        print(json.dumps({"p": None}))
+        return 0
+    ledger.log_hook("shift", {"p": round(ps, 3), "cached": bool(r.get("cached"))})
+    print(json.dumps({"p": round(ps, 3)}))
+    return 0
+
+
 HANDLERS = {"guard": guard, "screen": screen, "after-bash": after_bash, "route": route, "stop": stop, "session-start": session_start,
-            "record": record, "delegate": delegate, "pre-compact": pre_compact}
+            "record": record, "delegate": delegate, "pre-compact": pre_compact, "shift": shift}
 
 
 def run(which: str) -> int:
