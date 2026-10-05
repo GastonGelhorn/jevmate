@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.2
+
+The desktop app runs Claude Code through the SDK: a session starts there with no surface and nobody
+at the prompt, and the app attaches afterwards. The mod only took a person to be there at the start,
+so in the app `compact_mode: auto` never compacted and the guard refused in bypass mode where it
+should have asked. A client that attaches now counts. After a compaction the list names each saved
+result in the words the agent gave its command (on a coding session, all 82 in 5,870 characters,
+where the commands fit 61 in 8,219), and index.md says why each one was kept, cut or moved, with
+Jev's answer.
+
 ## 1.9.1
 
 A compaction on a local model fits the time Claude Code gives it: only the newest 20 large results
