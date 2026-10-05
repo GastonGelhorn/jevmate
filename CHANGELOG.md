@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.7.0
+
+`compact_mode: auto`: jev compacts on its own, in the background, once the context passes 200k
+tokens, and never before a turn, so nobody waits for it. After 55 minutes without a request it
+compacts while the prompt cache still holds the conversation: the summary reads it at the cache's
+price, and the first request after the break writes the small context instead of the whole one.
+Right after a turn whose prompt Jev judges to start other work (`jev hook shift`: that prompt against
+the three before it and the last reply), it compacts with that prompt as the summary's instructions,
+while the answer is read. Each one is logged with the context before and after and the summary's own
+cost, and `jev session`, the line above the prompt and the pane count what it saved: every later
+request re-read the smaller context, until the next compaction, less the summary. In Codex, whose
+hooks cannot start a compaction, `auto` acts as `on`.
+
 ## 1.6.4
 
 The compactions stay on the line above the prompt when it is narrow, as when the pane is docked
