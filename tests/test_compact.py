@@ -210,6 +210,22 @@ class Judged(unittest.TestCase):
         self.assertEqual(plan["restore"].count("## Read /r/a.py"), 1)
         self.assertNotIn("## Bash git log", plan["restore"], "a finished task's output is not repeated")
 
+    def test_a_local_model_judges_only_the_newest_with_its_own_bars(self):
+        settings.save_config({"base_url": "http://localhost:11434", "model": "tev1-32k"})
+        events = [say("fix the retry bug")]
+        for i in range(30):
+            events += [call(i, "Bash", {"command": f"cat part{i}.log"}), res(i, ("maybe " if i % 2 else "yes ") + BIG)]
+        t = FakeTransport()
+        with mock.patch("jev.transport.Transport.request", lambda self, *a, **k: t.request(*a, **k)):
+            plan = compact.build(events, client=Client(label="hook:compact", retries=0, timeout=110), recent=0)
+        judged = [r for r in plan["decisions"] if r["p"] is not None]
+        self.assertEqual(len(judged), compact.LOCAL_JUDGED, "only the newest results are asked about")
+        self.assertEqual([r["id"] for r in judged], [f"t{i}" for i in range(10, 30)])
+        self.assertEqual(compact.options()["keep_at"], 0.48)
+        self.assertEqual(compact.options()["cut_at"], 0.30)
+        settings.save_config({})
+        self.assertEqual(compact.options()["keep_at"], compact.KEEP_AT)
+
     def test_old_stores_are_pruned(self):
         old = settings.HOME / "compacted" / "session-old-1"
         old.mkdir(parents=True)

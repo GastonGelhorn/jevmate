@@ -39,6 +39,8 @@ SEEN_HEAD, SEEN_TAIL = 1_200, 400   # what Jev reads of a result
 RESTORE_TOKENS = 2_500   # the block after a compaction stays under this (Codex's default limit for hook context)
 EXCERPT = 1_500          # the longest a result repeated in that block can be
 STORE_DAYS = 14
+LOCAL_JUDGED = 20        # on a model on this machine (seconds a question) only the newest are judged: the block repeats a few
+MODEL_BARS = {"tev1": (0.48, 0.30)}  # tev1 answers nearer the middle: on a labelled set the needed sat at 0.42-0.72, the stale at 0.22-0.47
 STUB = "[jev compact]"
 MARK = "/compacted/session-"   # in a path: one of the files a compaction saved
 
@@ -449,7 +451,8 @@ def options() -> dict:
             return cast(v) if v not in (None, "") else default
         except ValueError:
             return default
-    return {"keep_at": pick("JEV_COMPACT_KEEP", KEEP_AT), "cut_at": pick("JEV_COMPACT_CUT", CUT_AT),
+    keep, cut = next((b for m, b in MODEL_BARS.items() if settings.default_model().startswith(m)), (KEEP_AT, CUT_AT))
+    return {"keep_at": pick("JEV_COMPACT_KEEP", keep), "cut_at": pick("JEV_COMPACT_CUT", cut),
             "recent": pick("JEV_COMPACT_RECENT", RECENT, int), "min_chars": pick("JEV_COMPACT_MIN", MIN_CHARS, int),
             "budget": pick("JEV_COMPACT_BUDGET", RESTORE_TOKENS, int)}
 
@@ -529,6 +532,10 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
             cands.append(i)
         rows.append(row)
     usage: dict = {"requests": 0, "cached": 0, "input_tokens": 0, **({"error": client_error} if client_error and cands else {})}
+    if cands and client is not None and settings.is_local(client.base_url) and len(cands) > LOCAL_JUDGED:
+        for i in cands[:-LOCAL_JUDGED]:  # the older ones stay whole and saved, unjudged
+            rows[i]["why"] = rows[i]["why"] or "unjudged"
+        cands = cands[-LOCAL_JUDGED:]
     if cands:
         if client is None:
             for i in cands:
