@@ -118,9 +118,9 @@ grouped by cause, the quick causes named first. Three are safety signals: a guar
 commands that look destructive, which remembers what you let through and knows what you last asked
 for; a screen on fetched content for text aimed at an agent; and an inspection of new or changed
 skills and plugins at session start. They are a second opinion on top of Claude Code's permissions,
-not a security boundary: they fail open, and when Jev cannot answer they say so once a session; the
-guard can ask or refuse but never allow, and the screen marks text without blocking it. Each logs
-one line per decision (`jev hooks status`).
+not a security boundary: they fail open, and when Jev cannot answer they say so, once as a warning
+and on the line above the prompt until it answers again; the guard can ask or refuse but never
+allow, and the screen marks text without blocking it. Each logs one line per decision (`jev hooks status`).
 
 **Compaction**, opt-in with `compact_mode`. Before Claude Code compacts the conversation, every large
 tool result in it is judged: rules settle a file read again or edited later, a command run again and

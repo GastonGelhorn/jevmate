@@ -104,8 +104,11 @@ terminal CLI). It calls the local
   runs sorted, unbacked claims) and the tokens kept out. Its other figures: decisions, tokens kept out, the share
   of the session's cost (Claude Code's own figure when it reports one), what was trimmed, how often
   the guard asked and the context in use, colored with the theme's own keys (`claude`, `success`,
-  `warning`, `error`, `suggestion`) so it follows light and dark themes. On a narrow screen the least
-  useful numbers go first; the saving always stays. Refreshed after each Bash command and each turn,
+  `warning`, `error`, `suggestion`) so it follows light and dark themes. While Jev cannot judge, it
+  leads with that and the reason (`Jev can't judge · HTTP 402: Insufficient credits`), folded too,
+  until a hook gets an answer again; compactions count with the results they saved, so a session in
+  which Jev never answered still shows them. On a narrow screen the least useful numbers go first;
+  the failure and the saving always stay. Refreshed after each Bash command and each turn,
   one refresh at a time. `details` and `/jevmate` open the session table in a pane, with a meter for
   the share and buttons to fold the line, refresh and close. `hide` folds the line to a chip with the
   saving and a `show` button; `/jevmate hide` and `/jevmate show` do the same from the prompt. The
