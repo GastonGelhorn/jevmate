@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0
+
+One local model for everything: Ollama's `tev1`, with a 32K window (the README shows the variant to
+create). The long backend of 1.8.0 is gone; ollaya stays a backend like any other. On Ollama jev
+sends one question per request, four at a time, since Ollama reads the whole request again for each
+question (a sift of 59 files went from 962,722 input tokens to 65,724), keeps each body under its
+64 KiB limit and cuts a state too big for it in the middle. On a local backend each hook gets most
+of its time, a command waits up to 300 s, a call that could not finish in its time at 2 s a
+question is skipped instead of sent, and a timeout there is not reported as Jev failing.
+
 ## 1.8.0
 
 Two backends, by size. `jev config set long_backend` sends the requests over `short_chars` (7,000
