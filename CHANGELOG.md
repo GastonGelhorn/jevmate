@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.8.0
+
+Two backends, by size. `jev config set long_backend` sends the requests over `short_chars` (7,000
+characters) or 64 questions to a second server, and the first one's refusal of a request for its
+length is answered there without a warning. It is for a small local decoder beside a fast encoder:
+Ollama's `tev1` (`jev config set backend ollama`, Ollama 0.35+) for the guard and the other short
+questions, ollaya's `laya` for sift, diff, tests, inspect, trim and compaction. On the guard's own
+history tev1 flagged 18 of the 24 commands Jev flagged and 5 of 180 it let through; it refuses
+requests over 2,050 tokens and reads long ones slowly, which laya does in seconds. `jev doctor`
+checks both.
+
+A server on this machine is never sent the key configured for a hosted backend, and its answers are
+marked `local` in the ledger and cost nothing; what was billed before keeps its price.
+
 ## 1.7.0
 
 `compact_mode: auto`: jev compacts on its own, in the background, once the context passes 200k
