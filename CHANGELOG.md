@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.3
+
+The line above the prompt says when Jev cannot judge, with the reason, until a hook gets an answer
+again; the warning alone could pass unseen at the start of a session, so the next hook repeats it.
+Compactions show on the line and keep the pane open in a session where Jev never answered, which
+used to read as nothing decided yet. `jev session` carries the same failure.
+
 ## 1.6.2
 
 When Jev cannot judge, the person hears of it. The hooks failed open in silence: with no key, no
