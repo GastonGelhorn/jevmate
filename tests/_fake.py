@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("TYPESAFE_API_KEY", "test-key-0000000000000000")
+# The mod exports this in the session it runs in, so a suite run from there would never see bypass deny.
+os.environ.pop("JEV_GUARD_MOD", None)
 
 # Fake OpenRouter-shaped keys, assembled at run time so that no file in the repo holds a key-shaped literal.
 _OR = "sk-or-" + "v1-"
