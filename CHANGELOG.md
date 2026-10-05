@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.1
+
+A compaction on a local model fits the time Claude Code gives it: only the newest 20 large results
+are judged (45 s with tev1, against 190 s for the 81 of a long session, which the PreCompact hook's
+120 s cut short before anything was saved), the older ones stay whole and saved. tev1 gets its own
+bars, keep from 0.48 and cut from 0.30: on a labelled set its answers ranked the needed results first
+but stayed between 0.22 and 0.72, so Jev's 0.65 kept one of four.
+
 ## 1.9.0
 
 One local model for everything: Ollama's `tev1`, with a 32K window (the README shows the variant to
