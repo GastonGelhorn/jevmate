@@ -131,6 +131,13 @@ its whole input, it also hands the summarizer the conversation with the stale re
 Your words, Claude's and the latest results are never touched; `jev compact` shows what it would do
 to any session, Claude Code's or Codex's.
 
+With `compact_mode: auto` jev also compacts on its own, in the background, once the context passes
+200k tokens: after 55 minutes without a request, while the prompt cache still holds the conversation,
+so you come back to a small one and the summary read it at the cache's price; and right after a turn
+whose prompt Jev judges to start other work, while you read the answer. What those compactions save
+is counted on the line above the prompt: each later request re-reads the smaller context, less what
+the summary cost.
+
 **The mod**, on Claude Code 2.1.287 and later, runs inside Claude Code itself. It draws the line
 above the prompt and the pane, asks you in Claude's own dialog before a destructive command in
 bypassPermissions mode, where a hook alone could only refuse, and adds a line under a reply that
@@ -208,6 +215,7 @@ local ledger keeps metadata only. What each part sends:
 | honesty check (off by default) | when a reply claims a check passed and none ran | the reply and the commands of that turn |
 | subagent routing (off by default) | when Claude starts a subagent without choosing its model | the subagent's task |
 | compaction (off by default) | before Claude Code or Codex compacts | the start and end of each large tool result, your last prompts and the agent's last message |
+| compaction `auto` | after a turn, on a context over 200k tokens | that turn's prompt, the three before it and the agent's last reply |
 
 The mod itself sends nothing: it runs the local `jev` command, which reads the ledger and the
 session's transcript on disk. Every part has an off switch in the plugin's settings. `SECURITY.md`

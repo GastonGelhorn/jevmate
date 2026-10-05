@@ -143,6 +143,19 @@ terminal CLI). It calls the local
   line each and the cut ones by their head and tail, and the calls that wrote a file without the file's
   text. The saving is logged at the session model's input price. A summary computed ahead of time is
   skipped while this is on, since it would be computed over the unpruned conversation and thrown away.
+- **Compactions it starts** (`compact_mode: auto`), in the background, never before a turn, once the
+  context passes 200k tokens (`JEV_AUTO_COMPACT_MIN`). Idle: a timer from the main thread's last
+  request fires after 55 minutes (`JEV_AUTO_COMPACT_IDLE`), while the prompt cache (an hour at most)
+  still holds the conversation, so the summary reads it at the cache's price and the first request
+  after the break writes the small context instead of the whole one; a prompt stops the timer, each
+  turn re-arms it, the same session keeps it across a restart (`last_request` in the store), and a
+  timer that wakes after the hour (a machine asleep) lets it go. Other work: a second after a turn,
+  Jev reads that turn's prompt against the three before it and the last reply (`jev hook shift`);
+  at p >= 0.85 the conversation is compacted with that prompt as the summary's instructions. Each one
+  logs `compact-auto` with the context before and after, the summary's own request priced, and the
+  time of the last request before it. `jev session` prices what it saved: every later request until
+  the next compaction re-read the smaller context, the first one priced as it would have gone without
+  it (a full write if the cache would have expired by then, a cache read if not), less the summary.
 - **Other mods**: as each loads, one line when it reads a credential and reaches the network or
   processes, answers permission checks, or writes environment variables.
 
@@ -237,7 +250,8 @@ it). Where Codex reads an answer differently, they answer in its terms:
 - trimmed output replaces the tool's result as hook feedback, since Codex does not take a rewritten
   result from PostToolUse;
 - compaction cannot be changed from a hook, so the large results are saved at PreCompact and the
-  block comes back at SessionStart (`source: compact`); turn it on with `jev config set compact on`;
+  block comes back at SessionStart (`source: compact`); turn it on with `jev config set compact on`
+  (`auto` acts as `on` there: a Codex hook cannot start a compaction);
 - the slash skills carry `agents/openai.yaml` with `allow_implicit_invocation: false`: Codex runs
   them when named (`$sift`), never on its own.
 

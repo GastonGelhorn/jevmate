@@ -17,7 +17,10 @@ you pass it. The hooks send, on their own:
   commands of that turn;
 - subagent routing, off by default: the task of a subagent Claude starts without choosing its model;
 - compaction, off by default: before Claude Code or Codex compacts, the start and end of each large
-  tool result, the person's last three prompts and the agent's last message.
+  tool result, the person's last three prompts and the agent's last message; with `compact_mode: auto`,
+  after a turn on a context over 200k tokens, that turn's prompt, the three before it and the agent's
+  last reply, to judge whether the prompt started other work. `auto` also starts Claude Code's own
+  compaction, which summarizes the conversation with Claude Code's model as `/compact` does.
 
 Tokens, keys and passwords (`key=…`, bearer headers and the common key shapes) are replaced with
 `<secret>` before any of this is sent or logged. `--dry-run` prints the request any command would
