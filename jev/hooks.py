@@ -939,10 +939,11 @@ def _api_reason(e: Exception) -> str:
     return text.split(". ")[0][:200]
 
 
-def _api_notice(deliver: bool) -> str:
+def _api_notice(deliver: bool, consume: bool = True) -> str:
     """What the person should hear about the API after this run: that it failed and why, once a session and
     again when the failure changes, then that it answers again. A run whose output nobody sees (the mod's)
-    leaves it for the next hook that can show it."""
+    leaves it for the next hook that can show it; one that may not be drawn (`consume` false) shows it and
+    leaves it too."""
     from . import ledger, settings
     tag = ledger.agent_tag()
     if not tag.startswith("session:"):
@@ -955,16 +956,21 @@ def _api_notice(deliver: bool) -> str:
     state = before
     if _CALLS and _CALLS[-1] is not None:
         e = _CALLS[-1]
-        if not (state and state.get("kind") == _api_kind(e) and state.get("told")):
-            state = {"kind": _api_kind(e), "told": False,
-                     "msg": f"jev: Jev could not judge ({_api_reason(e)}). Until it can, jev's hooks let everything through "
+        kind, reason = _api_kind(e), _api_reason(e)
+        if state and state.get("kind") == kind and state.get("told"):
+            state = {**state, "reason": reason}  # told already; the band still shows why
+        else:
+            since = state.get("since") if state and state.get("kind") != "ok" else time.time()
+            state = {"kind": kind, "told": False, "reason": reason, "since": since,
+                     "msg": f"jev: Jev could not judge ({reason}). Until it can, jev's hooks let everything through "
                             "unchecked, the guard included. `jev doctor` checks the key and the backend."}
     elif _CALLS and state and state.get("kind") != "ok":
         state = {"kind": "ok", "told": False, "msg": "jev: Jev judges again, so the hooks check again."} if state.get("told") else None
     msg = ""
     if state and deliver and not state.get("told"):
         msg = state["msg"]
-        state = None if state["kind"] == "ok" else {**state, "told": True}
+        if consume:
+            state = None if state["kind"] == "ok" else {**state, "told": True}
     if state != before:
         try:
             if state is None:
@@ -975,6 +981,20 @@ def _api_notice(deliver: bool) -> str:
         except OSError:
             pass
     return msg
+
+
+def api_status(tag: str | None) -> dict | None:
+    """Whether Jev was failing for this session when a hook last asked it, and why: for the band and `jev session`."""
+    if not tag:
+        return None
+    from . import settings
+    try:
+        state = json.loads((settings.SESSIONS_DIR / f"{tag.replace(':', '-')}.api.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(state, dict) or state.get("kind") in (None, "ok"):
+        return None
+    return {"reason": state.get("reason") or str(state["kind"]).replace("JevError:", "HTTP ").strip(":"), "since": state.get("since")}
 
 
 def _with_notice(which: str, out: str) -> str:
@@ -989,7 +1009,8 @@ def _with_notice(which: str, out: str) -> str:
             shown = None
         if not isinstance(shown, dict):
             shown = None
-    msg = _api_notice(deliver=shown is not None)
+    # A resumed session's SessionStart answer left no trace in Claude Code's transcript: the next hook says it again.
+    msg = _api_notice(deliver=shown is not None, consume=which != "session-start")
     if not msg:
         return out
     shown["systemMessage"] = f"{shown['systemMessage']}\n{msg}" if shown.get("systemMessage") else msg

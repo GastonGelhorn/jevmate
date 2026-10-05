@@ -294,7 +294,8 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
                "rereads": len(kinds("compact-reread")), "pruned": sum(1 for h in comps if h.get("pruned")),
                "saved_usd": sum(float(h.get("saved_usd") or 0) for h in comps)}
     saved = would - paid_reads
-    return {"requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
+    from .hooks import api_status
+    return {"api": api_status(tag), "requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
             "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
@@ -532,6 +533,11 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         lines.append(f"  {'session':<14}{m['turns']:>5} turns   {y}~${m['usd']:,.2f}{r0} · context now {fmt_k(m['ctx'])} tokens ({100 * m['ctx'] / m['ctx_size']:.0f}% of {fmt_k(m['ctx_size'])})"
                      + (f" · {y}each turn re-reads it: ~${m['carry']:.2f}{r0}" if m.get("carry") else ""))
     lines.append(f"\n{b}jev side{r0}{dim}  this session{r0}")
+    api = j.get("api")
+    if api:
+        when = f" since {time.strftime('%H:%M', time.localtime(api['since']))}" if api.get("since") else ""
+        lines.append(f"  {b}jev{r0}                {y}cannot judge{r0}{dim} · {api['reason']}{when} · the hooks let everything through unchecked · "
+                     f"`jev doctor` checks the key and the backend{r0}")
     if not j["requests"] and not j["asked"] and not j.get("trimmed") and not (j.get("compact") or {}).get("runs"):
         lines.append(f"  {dim}nothing decided yet this session · `jev sift`, `jev tests`, `jev cluster` … will show up here{r0}")
         return "\n".join(lines)

@@ -498,6 +498,25 @@ class ApiNotice(unittest.TestCase):
         self.delegate(FakeTransport())
         self.assertEqual(self.stop()[1], "")
 
+    def test_the_band_reads_the_failure_until_jev_answers(self):
+        from jev.hooks import api_status
+        self.guard(FakeTransport([402]))
+        self.assertEqual(api_status("session:abcdef12")["reason"], "HTTP 402: scripted 402")
+        code, out, err, _ = run(["session", "--json", "--compact", "--session", "abcdef12-0000", "--cwd", str(self.home)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["jev"]["api"]["reason"], "HTTP 402: scripted 402")
+        self.guard(FakeTransport(), cmd="rm -rf yes-build")
+        self.assertIsNone(api_status("session:abcdef12"))
+
+    def test_session_start_shows_it_and_the_next_hook_too(self):
+        self.delegate(FakeTransport([402]))
+        payload = {"hook_event_name": "SessionStart", "source": "resume", "session_id": "abcdef12-0000", "cwd": str(self.home)}
+        with mock.patch.dict("os.environ", {"JEV_INSPECT_MODE": "off"}):
+            code, out, _, _ = run(["hook", "session-start"], stdin=json.dumps(payload))
+        self.assertIn("HTTP 402", self.told(out))
+        self.assertIn("HTTP 402", self.told(self.stop()[1]), "the start of a session may not be drawn, so the next hook says it too")
+        self.assertEqual(self.stop()[1], "")
+
     def test_no_key(self):
         env = {k: v for k, v in os.environ.items() if k != "TYPESAFE_API_KEY"}
         with mock.patch.dict("os.environ", env, clear=True):
