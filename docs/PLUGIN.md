@@ -87,7 +87,9 @@ plugin's settings (`/config`) or the environment.
   question takes seconds there; the older ones stay whole and saved. The ten latest large results
   are never touched, only judged for the block. Every large result is saved under `compacted/` in the jev home, and when
   SessionStart fires with `source: compact` it adds a block of at most 2,500 tokens: the results Jev
-  judged still needed, the surest first, verbatim or cut, then where the rest are. Without a key or a
+  judged still needed, the surest first, verbatim or cut, then where the rest are, each named by the
+  description the agent gave its command; `index.md` in that folder says why each one was kept, cut or
+  moved (the rule, or Jev's answer). Without a key or a
   backend the rules still decide, everything else stays whole and the block repeats nothing: recency
   alone cannot tell the file about to change from the output of a task already finished. A read of one of those files later is logged as a result moved out
   too eagerly; `jev compact --report` gives the rate, which is what the two bars are tuned against.
