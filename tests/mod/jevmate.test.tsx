@@ -50,6 +50,7 @@ type World = {
   calls: string[][]
   stdins: string[]
   store: Map<string, unknown>
+  env?: string[]
 }
 
 const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], stdins: [], store: new Map(Object.entries(entries)) })
@@ -68,7 +69,10 @@ function world(on: On, w: World) {
     return { value: undefined }
   })
   on('fs.exists', () => ({ value: true }))
-  on('env.set', () => ({ value: undefined }))
+  on('env.set', (_$, e) => {
+    w.env?.push(`${e.name}=${e.value}`)
+    return { value: undefined }
+  })
   on('session.id', () => ({ value: 'abcdef12-0000-0000' }))
   on('session.version', () => ({ value: { version: '2.1.287' } }))
   on('session.usage', () => ({ value: w.usage ?? { startedAt: 0, context: { window: 1000000, tokens: 290000, percent: 29 }, rateLimits: [], cost: { usd: 40.0 } } }))
@@ -94,6 +98,7 @@ function world(on: On, w: World) {
     return <Text>another mod's band</Text>
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
@@ -460,6 +465,27 @@ describe('the guard where no prompt can appear', () => {
     expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })).decision).toBe('deny')
   })
 
+  test('in the desktop app: the session starts with nobody at the prompt, the app attaches, and it asks', async ($, on) => {
+    const w: World = { ...fresh(), judge: RISKY, env: [] }
+    world(on, w)
+    // bypass mode: the PreToolUse hook refuses unless the mod said it would ask
+    on('tool.check', () => ({ decision: w.env?.length ? ('allow' as const) : ('deny' as const) }))
+    let asked = 0
+    on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
+      asked++
+      return { result: { questions: e.questions, answers: { [e.questions[0].question]: 'Refuse' } } }
+    })
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+    expect(w.env).toEqual([])
+    // a -p run or the SDK on its own: nobody to ask, the hook's refusal stands
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })).decision).toBe('deny')
+    expect(asked).toBe(0)
+    await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+    expect(w.env).toEqual(['JEV_GUARD_MOD=1'])
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push --force origin main' } })).decision).toBe('deny')
+    expect(asked).toBe(1)
+  })
+
   test('a read-only command costs nothing', async ($, on) => {
     const w: World = { ...fresh(), judge: RISKY }
     world(on, w)
@@ -665,6 +691,21 @@ describe('compactions jev starts itself (compact_mode auto), in the background',
     expect(row).toContain('"after":30000')
     expect(row).toContain('"ttl_min":60')
     expect(row).toContain(`"last_at":${Date.UTC(2026, 9, 2, 9, 30)}`)
+  })
+
+  test('in the desktop app too, once the app attaches; never in a run nobody watches', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await clock.advance(56 * 60_000)
+    expect(seen).toEqual([])
+    await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+    await turn($, 't2', 'and the dead-letter path, does it back off too?')
+    await clock.advance(56 * 60_000)
+    expect(seen.length).toBe(1)
   })
 
   test('a prompt before then stops the timer', { options: { compact_mode: 'auto' } }, async ($, on) => {

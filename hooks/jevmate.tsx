@@ -454,6 +454,17 @@ async function reading($: Api, prompt: string, kind: string): Promise<number | n
   }
 }
 
+// Someone can be asked: the REPL from the start, or the first client to attach. The desktop app runs the
+// session through the SDK, which starts with no surface and nobody at the prompt, then attaches.
+async function reachable($: Api): Promise<void> {
+  if (canAsk) return
+  canAsk = true
+  if (cfg.guardMode === 'ask' || cfg.guardMode === 'strict') {
+    // Tells the PreToolUse guard that, where no prompt can appear, this module asks instead of denying.
+    await $.env.set('JEV_GUARD_MOD', '1')
+  }
+}
+
 async function shift($: Api, prompt: string): Promise<number | null> {
   const payload = { prompt, asked: recentPrompts, answered: lastAnswer, session_id: sessionId, judge: true }
   const r = await jev($, ['hook', 'shift'], JSON.stringify(payload), 30_000) // in the background: a local model may take a while
@@ -708,11 +719,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     sessionId = await $.session.id()
     cwd = e.cwd
-    canAsk = e.isInteractive && e.surface !== null
-    if (canAsk && (cfg.guardMode === 'ask' || cfg.guardMode === 'strict')) {
-      // Tells the PreToolUse guard that, where no prompt can appear, this module asks instead of denying.
-      await $.env.set('JEV_GUARD_MOD', '1')
-    }
+    if (e.isInteractive || e.surface !== null) await reachable($)
     try {
       version = (await $.session.version()).version
     } catch {
@@ -754,6 +761,11 @@ export const register: Register = (on, options) => {
       }
     }
     void refresh($)
+    return next(e)
+  })
+
+  on('session.attach', async ($, e, next) => {
+    await reachable($)
     return next(e)
   })
 
