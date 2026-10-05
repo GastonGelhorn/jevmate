@@ -74,6 +74,7 @@ type JevSide = {
   routing?: Routing
   compact?: Compaction
   share?: number
+  api?: { reason: string; since?: number | null } | null
 }
 // A plan window as jev reads it: points used when Claude Code last read it, and the points the kept-out text would have taken.
 type PlanWindow = { label?: string; used: number; resets_at: string | null; as_of?: string; rate: number | null; kept_free: number | null }
@@ -138,6 +139,10 @@ const money = (x: number) => (x >= 100 ? `$${Math.round(x).toLocaleString('en-US
 const pct = (x: number) => `${Math.round(100 * Math.min(1, Math.max(0, x)))}%`
 const length = (pieces: Piece[]) => pieces.reduce((sum, p) => sum + p.text.length, 0)
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
+const clock = (epochSeconds: number) => {
+  const d = new Date(epochSeconds * 1000)
+  return `${two(d.getHours())}:${two(d.getMinutes())}`
+}
 // Points of a plan window: 2.1%, <0.1%, or 1.4× past a whole window.
 const points = (x: number) => (x >= 100 ? `${(x / 100).toFixed(1)}×` : x < 0.1 ? '<0.1%' : `${x.toFixed(1)}%`)
 const two = (x: number) => String(x).padStart(2, '0')
@@ -276,7 +281,14 @@ function spent(): { usd: number; estimated: boolean } | null {
 }
 
 function isIdle(j: JevSide | undefined): boolean {
-  return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0))
+  return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0) && !(j.compact?.runs ?? 0) && !j.api)
+}
+
+// Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason cut to fit.
+function failing(j: JevSide | undefined): Piece[] | null {
+  if (!j?.api) return null
+  const why = j.api.reason.length > 40 ? `${j.api.reason.slice(0, 39)}…` : j.api.reason
+  return [{ text: "Jev can't judge", bold: true, color: BAD }, ...(why ? [{ text: ` · ${why}`, dim: true } as Piece] : [])]
 }
 
 const savedTotal = (j: JevSide) => j.saved_total ?? j.saved
@@ -298,6 +310,8 @@ function caught(j: JevSide): Piece[][] {
 function segments(): Segment[] {
   const j = summary?.jev
   const out: Segment[] = []
+  const down = failing(j)
+  if (down) out.push({ key: 'api', rank: 10, pieces: down })
   if (isIdle(j) || !j) {
     out.push({ key: 'idle', rank: 9, pieces: [{ text: 'ready', color: GOOD }, { text: ' · nothing decided yet this session', dim: true }] })
   } else {
@@ -324,7 +338,10 @@ function segments(): Segment[] {
       out.push({ key: 'subagents', rank: 5, pieces: [{ text: plural(j.routing.subagents, 'subagent'), color: INFO }, { text: ' on a cheaper model', dim: true }] })
     }
     caught(j).forEach((pieces, i) => out.push({ key: `caught${i}`, rank: 7 - i, pieces }))
-    if (!worth && !j.kept_out && !caught(j).length) {
+    if (j.compact?.runs) {
+      out.push({ key: 'compact', rank: 3, pieces: [{ text: plural(j.compact.runs, 'compaction'), color: INFO }, { text: ` · ${n(j.compact.judged)} ${j.compact.judged === 1 ? 'result' : 'results'} saved`, dim: true }] })
+    }
+    if (!worth && !j.kept_out && !caught(j).length && j.decisions) {
       out.push({ key: 'decisions', rank: 6, pieces: [{ text: n(j.decisions), bold: true }, { text: ' decisions', dim: true }] })
     }
   }
@@ -614,8 +631,10 @@ export const register: Register = (on, options) => {
       const five = summary?.plan?.windows?.five_hour?.kept_free ?? summary?.plan?.windows?.seven_day?.kept_free
       const worth = j && !isIdle(j) && savedTotal(j) >= MONEY_FLOOR
       const first = j && !isIdle(j) ? caught(j)[0] : undefined
-      const chip: Piece[] =
-        !j || isIdle(j)
+      const down = failing(j)
+      const chip: Piece[] = down
+        ? [{ text: ' ' }, down[0]]
+        : !j || isIdle(j)
           ? [{ text: ' ready', dim: true }]
           : worth && five !== null && five !== undefined
             ? [{ text: ` ${points(five)} of ${summary?.plan?.windows?.five_hour?.kept_free !== undefined && summary?.plan?.windows?.five_hour?.kept_free !== null ? '5h' : 'the week'} saved`, color: GOOD }]
@@ -726,10 +745,20 @@ export const register: Register = (on, options) => {
     const compactOn = cfg.compactMode === 'on'
     const co = j.compact
     const models = sub ? Object.entries(sub.models).map(([m, count]) => `${count} on ${shortModel(m)}`).join(', ') : ''
+    const down = failing(j)
     return (
       <Box flexDirection="column">
         {header}
         <Text> </Text>
+        {down && j.api
+          ? row('jev', [
+              { text: "can't judge", bold: true, color: BAD },
+              {
+                text: ` · ${j.api.reason}${j.api.since ? ` since ${clock(j.api.since)}` : ''} · the hooks let everything through unchecked · \`jev doctor\` checks the key and the backend`,
+                dim: true,
+              },
+            ])
+          : null}
         {row('saved', [
           { text: `~${money(total)}`, bold: true, color: GOOD },
           { text: plan ? ' at most · a subscription is not billed per token, so this is an API equivalent' : ' at most', dim: true },
@@ -776,7 +805,7 @@ export const register: Register = (on, options) => {
           { text: compactOn ? 'on' : 'off', bold: true, ...(compactOn ? { color: GOOD } : {}) },
           co && co.runs
             ? {
-                text: ` · ${plural(co.runs, 'compaction')} judged · ${n(co.moved)} results moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}`,
+                text: ` · ${plural(co.runs, 'compaction')} judged · ${plural(co.moved, 'result')} moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}`,
                 dim: true,
               }
             : {

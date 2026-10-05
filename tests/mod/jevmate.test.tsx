@@ -182,6 +182,49 @@ describe('the band above the prompt', () => {
   })
 })
 
+describe('when Jev cannot judge, and a session where only compaction ran', () => {
+  const DOWN = { ...SUMMARY, jev: { ...JEV, api: { reason: 'HTTP 402: Insufficient credits', since: null } } }
+  const QUIET = {
+    ...SUMMARY,
+    jev: { ...JEV, requests: 0, decisions: 0, tokens: 0, cached: 0, reads: 0, overhead: 0, trimmed: 0, trim_runs: 0, kept_out: 0, paid: 0, would: 0,
+           saved: 0, saved_total: 0, asked: 0, once: 0, reread: 0, share: 0, labels: {}, hook_labels: {},
+           safety: { asked: 0, pages_flagged: 0, files_flagged: 0, triaged: 0, claims: 0, checks: 0 },
+           compact: { runs: 1, judged: 77, moved: 1, cut: 0, kept: 76, freed: 900, restored: 2500, rereads: 0, pruned: 0, saved_usd: 0 } },
+  }
+
+  test('the band says so first, keeps it on a narrow terminal, and folded too', async ($, on) => {
+    world(on, { ...fresh(), summary: DOWN })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { band, text } = await bandText($, 'terminal', 80)
+    expect(text).toContain("Jev can't judge · HTTP 402: Insufficient credits")
+    expect(text).not.toContain('kept out')
+    await band.press({ key: 'hide' })
+    expect((await band.find({ text: /◆ jev/ }))?.text ?? '').toContain("Jev can't judge")
+  })
+
+  test('the pane says why and what it means', async ($, on) => {
+    world(on, { ...fresh(), summary: DOWN })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /can't judge/ }))?.text ?? '').toContain('HTTP 402: Insufficient credits · the hooks let everything through unchecked')
+  })
+
+  test('compaction counts without a single Jev answer', async ($, on) => {
+    world(on, { ...fresh(), summary: QUIET })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('1 compaction · 77 results saved')
+    expect(text).not.toContain('nothing decided yet')
+    expect(text).not.toContain('0 decisions')
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^\s*compaction/ }))?.text ?? '').toContain('1 compaction judged · 1 result moved to disk')
+  })
+})
+
 describe('the pane', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`/jevmate opens it with the session table on the ${surface}`, async ($, on) => {
