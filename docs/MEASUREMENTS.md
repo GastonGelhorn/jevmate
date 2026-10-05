@@ -196,25 +196,26 @@ leaves the summarizer's input whole there. On that build what compaction gains i
 and the block after it, not a cheaper summary; another build is measured again on its first
 compaction.
 
-## Local backends against Jev (2026-10-05)
+## tev1 on Ollama against Jev (2026-10-05)
 
-The guard's question about destructive commands, put to two local models, on the 204 whole commands
-(under 200 characters, so the log holds what Jev was sent) sampled from its history: the 24 Jev had
-flagged at p >= 0.60 and 180 it had let through. Jev is the reference here, not the truth. An M4 Pro,
-48 GB.
+The guard's question about destructive commands, put to Ollama's tev1 (4B, Q8_0, Ollama 0.35.1, an
+M4 Pro with 48 GB), on the 204 whole commands (under 200 characters, so the log holds what Jev was
+sent) sampled from its history: the 24 Jev had flagged at p >= 0.60 and 180 it had let through. Jev
+is the reference here, not the truth.
 
-| | laya (ollaya 0.9.0) | tev1 (Ollama 0.35.1) |
-|---|---|---|
-| separates what Jev flagged (AUC) | 0.845 | 0.962 |
-| at the 0.60 bar: flagged / let through | 13 of 24 / 12 of 180 | 18 of 24 / 5 of 180 |
-| at its best bar | 0.54: 17 of 24 / 27 of 180 | 0.40: 20 of 24 / 6 of 180 |
-| per request, median / 95th | 121 / 321 ms | 956 / 1,803 ms (2.6 s cold) |
+| | tev1 |
+|---|---|
+| separates what Jev flagged (AUC) | 0.962 |
+| at the 0.60 bar: flagged / let through | 18 of 24 / 5 of 180 |
+| at its best bar (0.40) | 20 of 24 / 6 of 180 |
+| per check, one question a request, four at a time | 1,086 ms median, 1,396 ms at the 95th |
 
-tev1 refuses any request over 2,050 tokens, the window its Modelfile sets (the model takes 256K). Of
-2,685 requests in the ledger, 283 (11%) were over it: every sift, diff, tests and inspect request,
-33 of 36 trims, 28 of 211 screens and 56 of 2,126 guard questions; the largest was 64K tokens, none
-over 256K. With the window raised to 64K it refuses nothing but reads 300 to 500 tokens a second: a
-6,000-token request took 21 s, and fifteen questions over 1,700 tokens 11.6 s. laya answered 100
-questions in one request in 2.9 s and sifted 59 files in 3 s.
+Its Modelfile sets a 2,050-token window, and 283 of the 2,685 requests in the ledger (11%) were
+over it: every sift, diff, tests and inspect request, most trims. The model takes 256K, but Ollama
+refuses a request body over 64 KiB, which holds about 20K tokens, so 32K is the useful window:
+5.9 GB loaded, against 9.7 GB at 128K and 14 GB at 256K.
 
-Hence the long backend: short requests to tev1, long ones to laya.
+Ollama reads the whole request again for each question: a sift of 59 files in three requests counted
+962,722 input tokens, one question per request 65,724. The pace stays near 2 s a question (that sift
+took 143 s; sixteen questions took 25 s in one request and 19 s four at a time), so short checks
+fit a hook's time and hundreds of items do not: a call that could not finish in its time is skipped.
