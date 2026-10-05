@@ -196,10 +196,22 @@ describe('when Jev cannot judge, and a session where only compaction ran', () =>
     world(on, { ...fresh(), summary: DOWN })
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
     const { band, text } = await bandText($, 'terminal', 80)
-    expect(text).toContain("Jev can't judge · HTTP 402: Insufficient credits")
+    expect(text).toContain("Jev can't judge · no credit")
+    expect(text).toContain('~$18.36 saved')
     expect(text).not.toContain('kept out')
     await band.press({ key: 'hide' })
     expect((await band.find({ text: /◆ jev/ }))?.text ?? '').toContain("Jev can't judge")
+  })
+
+  test('a narrow band keeps the compactions ahead of the safety figures', async ($, on) => {
+    const summary = { ...DOWN, jev: { ...DOWN.jev, compact: { runs: 2, judged: 144, moved: 2, cut: 0, kept: 142, freed: 6186, restored: 4996, rereads: 0, pruned: 0, saved_usd: 0 } } }
+    world(on, { ...fresh(), summary })
+    await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+    const { text } = await bandText($, 'desktop', 100)
+    expect(text).toContain("Jev can't judge · no credit")
+    expect(text).toContain('~$18.36 saved')
+    expect(text).toContain('2 compactions')
+    expect(text).not.toContain('144 results saved')
   })
 
   test('the pane says why and what it means', async ($, on) => {
@@ -216,6 +228,8 @@ describe('when Jev cannot judge, and a session where only compaction ran', () =>
     await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
     const { text } = await bandText($)
     expect(text).toContain('1 compaction · 77 results saved')
+    const narrow = await bandText($, 'desktop', 100)
+    expect(narrow.text).toContain('1 compaction')
     expect(text).not.toContain('nothing decided yet')
     expect(text).not.toContain('0 decisions')
     await $.command.run({ command: 'jevmate', args: '' })

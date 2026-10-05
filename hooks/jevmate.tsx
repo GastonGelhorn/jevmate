@@ -284,10 +284,22 @@ function isIdle(j: JevSide | undefined): boolean {
   return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0) && !(j.compact?.runs ?? 0) && !j.api)
 }
 
-// Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason cut to fit.
+// Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason in two words.
+// The pane and the warning carry it whole.
+function shortReason(reason: string): string {
+  const status = /^HTTP (\d{3})/.exec(reason)?.[1]
+  if (status === '402') return 'no credit'
+  if (status === '401' || status === '403') return 'key rejected'
+  if (status === '429') return 'rate limited'
+  if (status?.startsWith('5')) return 'backend error'
+  if (/^no API key/i.test(reason)) return 'no key'
+  if (/^network error/i.test(reason)) return 'unreachable'
+  return status ? `HTTP ${status}` : reason.slice(0, 24)
+}
+
 function failing(j: JevSide | undefined): Piece[] | null {
   if (!j?.api) return null
-  const why = j.api.reason.length > 40 ? `${j.api.reason.slice(0, 39)}…` : j.api.reason
+  const why = shortReason(j.api.reason)
   return [{ text: "Jev can't judge", bold: true, color: BAD }, ...(why ? [{ text: ` · ${why}`, dim: true } as Piece] : [])]
 }
 
@@ -339,7 +351,11 @@ function segments(): Segment[] {
     }
     caught(j).forEach((pieces, i) => out.push({ key: `caught${i}`, rank: 7 - i, pieces }))
     if (j.compact?.runs) {
-      out.push({ key: 'compact', rank: 3, pieces: [{ text: plural(j.compact.runs, 'compaction'), color: INFO }, { text: ` · ${n(j.compact.judged)} ${j.compact.judged === 1 ? 'result' : 'results'} saved`, dim: true }] })
+      // The count stays ahead of the safety figures; how many results it saved is the first detail to go.
+      out.push({ key: 'compact', rank: 7.5, pieces: [{ text: plural(j.compact.runs, 'compaction'), color: INFO }] })
+      if (j.compact.judged) {
+        out.push({ key: 'compact-saved', rank: 3, pieces: [{ text: `${n(j.compact.judged)} ${j.compact.judged === 1 ? 'result' : 'results'} saved`, dim: true }] })
+      }
     }
     if (!worth && !j.kept_out && !caught(j).length && j.decisions) {
       out.push({ key: 'decisions', rank: 6, pieces: [{ text: n(j.decisions), bold: true }, { text: ' decisions', dim: true }] })
@@ -653,7 +669,8 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
-    const room = Math.max(24, e.props.bodyColumns - 26)
+    // Cells are counted for a monospace grid; the desktop's proportional font fits about a fifth more text in them.
+    const room = Math.max(24, Math.floor((e.props.bodyColumns - 26) * (e.surface === 'desktop' ? 1.2 : 1)))
     const pieces: Piece[] = [{ text: '◆ jev', bold: true, color: ACCENT }, { text: '  ' }]
     fit(segments(), room).forEach((seg, i) => {
       if (i) pieces.push({ text: ' · ', dim: true })
@@ -754,7 +771,7 @@ export const register: Register = (on, options) => {
           ? row('jev', [
               { text: "can't judge", bold: true, color: BAD },
               {
-                text: ` · ${j.api.reason}${j.api.since ? ` since ${clock(j.api.since)}` : ''} · the hooks let everything through unchecked · \`jev doctor\` checks the key and the backend`,
+                text: ` · ${j.api.reason}${j.api.since ? ` since ${clock(j.api.since)}` : ''} · the hooks let everything through unchecked · jev doctor checks the key and the backend`,
                 dim: true,
               },
             ])
