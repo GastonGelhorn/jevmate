@@ -177,8 +177,17 @@ back to `py -3` when `python3` is not on the PATH.
 Any server that answers `POST /v1/systemone` works: `jev config set backend typesafe|openrouter|ollama|ollaya|von`,
 or `jev config set backend http://host:port` for another one. A local server (plain http, or a loopback
 host) needs no key; `jev doctor` says which backend is in use. ollaya serves open decision models on
-`localhost:11435`; von serves its open System One model on `localhost:8000` (docker). Thresholds tuned
-on one model do not carry to another: run `jev tune` again after switching.
+`localhost:11435`; von serves its open System One model on `localhost:8000` (docker); Ollama 0.35+
+serves `tev1` and `nimble` on `localhost:11434`. Thresholds tuned on one model do not carry to
+another: run `jev tune` again after switching.
+
+`jev config set long_backend <name|url>` adds a second server for the requests over `short_chars`
+(7,000 characters) or 64 questions, and the first server's refusal of a request for its length
+(an HTTP 400 naming tokens or the context) is answered there, with no warning to the person. The
+pair it is for: a small decoder with a short window and a slow read of long input (tev1 on Ollama:
+2,050 tokens, 300 to 500 tokens a second on an M4 Pro), beside an encoder that reads long input
+fast (laya on ollaya). A local server is sent no key, and its answers are marked `local` in the
+ledger and cost nothing. `jev doctor` checks both.
 
 ## MCP tools
 

@@ -198,6 +198,13 @@ running on your machine, with no key; `jev config set backend
 http://host:port` points anywhere else. Thresholds are per model, so run `jev tune` again after
 switching.
 
+Two local servers can share the work. With `jev config set backend ollama` and `jev config set
+long_backend ollaya`, the guard and the other short questions go to Ollama's `tev1`, which followed
+Jev closely on the guard's history, and the long requests (sift, diff, tests, inspect, trim,
+compaction) to ollaya's `laya`, which reads them in seconds; tev1 refuses those, and one it refuses
+is answered by laya. Local answers cost nothing, and the key you set for a hosted backend never
+reaches them. `docs/MEASUREMENTS.md` has the comparison.
+
 ## What it sends, and where
 
 Everything goes to the one backend you configured (TypeSafe's API, OpenRouter, or a server on your
