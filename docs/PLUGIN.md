@@ -181,13 +181,15 @@ host) needs no key; `jev doctor` says which backend is in use. ollaya serves ope
 serves `tev1` and `nimble` on `localhost:11434`. Thresholds tuned on one model do not carry to
 another: run `jev tune` again after switching.
 
-`jev config set long_backend <name|url>` adds a second server for the requests over `short_chars`
-(7,000 characters) or 64 questions, and the first server's refusal of a request for its length
-(an HTTP 400 naming tokens or the context) is answered there, with no warning to the person. The
-pair it is for: a small decoder with a short window and a slow read of long input (tev1 on Ollama:
-2,050 tokens, 300 to 500 tokens a second on an M4 Pro), beside an encoder that reads long input
-fast (laya on ollaya). A local server is sent no key, and its answers are marked `local` in the
-ledger and cost nothing. `jev doctor` checks both.
+On Ollama, which reads the whole request again for each question, refuses bodies over 64 KiB and
+takes 64 questions at most, jev sends one question per request (`max_questions`), four at a time
+(`parallel`), keeps each body under 60,000 bytes (`max_body`) and cuts a state still too big in the
+middle. On any local backend a hook gets most of its entry's time (the guard 8 s, after-bash 22,
+screen 13, PreCompact 110), a command waits up to 300 s, a call whose questions would take longer
+than that at 2 s each (`local_seconds_per_question`) is not sent and the caller goes on without it,
+and a timeout is not reported as Jev failing. A local server is sent no key, and its answers are
+marked `local` in the ledger and cost nothing. tev1 needs a variant with a larger window
+(`PARAMETER num_ctx 32768`); the README shows it.
 
 ## MCP tools
 

@@ -198,12 +198,19 @@ running on your machine, with no key; `jev config set backend
 http://host:port` points anywhere else. Thresholds are per model, so run `jev tune` again after
 switching.
 
-Two local servers can share the work. With `jev config set backend ollama` and `jev config set
-long_backend ollaya`, the guard and the other short questions go to Ollama's `tev1`, which followed
-Jev closely on the guard's history, and the long requests (sift, diff, tests, inspect, trim,
-compaction) to ollaya's `laya`, which reads them in seconds; tev1 refuses those, and one it refuses
-is answered by laya. Local answers cost nothing, and the key you set for a hosted backend never
-reaches them. `docs/MEASUREMENTS.md` has the comparison.
+On your own machine, Ollama's `tev1` runs all of it. Its Modelfile sets a 2,050-token window, so
+give it 32K, which takes any request Ollama accepts (it refuses bodies over 64 KiB):
+
+```sh
+ollama pull tev1
+printf 'FROM tev1\nPARAMETER num_ctx 32768\n' > tev1-32k.Modelfile && ollama create tev1-32k -f tev1-32k.Modelfile
+jev config set backend ollama && jev config set model tev1-32k
+```
+
+jev sends it one question per request, four at a time, and skips a call that could not finish in
+its time. The guard's checks take about a second; a sift or a compaction over hundreds of items is
+slow there, and a hook goes on without them. Local answers cost nothing, and the key you set for a
+hosted backend never reaches them. `docs/MEASUREMENTS.md` has the numbers.
 
 ## What it sends, and where
 
