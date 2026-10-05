@@ -36,7 +36,11 @@ class Client:
                  base_url: str | None = None, record: bool = True, label: str = "lib", transport=None, on_call=None):
         self.base_url = (base_url or settings.base_url()).rstrip("/")
         try:
-            self.api_key, self.key_source = settings.resolve_key(api_key)
+            if settings.is_local(self.base_url) and api_key is None:
+                # A key belongs to the hosted backend it was made for; a server on this machine gets none unless passed one.
+                self.api_key, self.key_source = "", "(local backend, no key)"
+            else:
+                self.api_key, self.key_source = settings.resolve_key(api_key)
         except AuthError:
             if settings.RUNTIME.dry_run:
                 self.api_key, self.key_source = "", "(dry run, no key)"  # nothing leaves the machine

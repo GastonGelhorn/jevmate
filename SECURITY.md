@@ -22,6 +22,9 @@ you pass it. The hooks send, on their own:
   last reply, to judge whether the prompt started other work. `auto` also starts Claude Code's own
   compaction, which summarizes the conversation with Claude Code's model as `/compact` does.
 
+A server on your own machine gets no API key: the key you configured is for TypeSafe or OpenRouter,
+and jev sends it only to a hosted backend (`--api-key` passes one to a local server on purpose).
+
 Tokens, keys and passwords (`key=…`, bearer headers and the common key shapes) are replaced with
 `<secret>` before any of this is sent or logged. `--dry-run` prints the request any command would
 send, without a key and without sending it. Each hook has an off switch in the plugin's settings.
