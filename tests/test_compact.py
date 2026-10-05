@@ -133,7 +133,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(p["stats"]["repeated"], 0)
         self.assertNotIn("##", p["restore"], "recency alone does not say what the work still needs")
         self.assertNotIn("repeated below", p["restore"])
-        self.assertIn("002-Bash.txt: Bash make", p["restore"])
+        self.assertIn("002-Bash.txt: make", p["restore"])
 
     def test_a_written_file_shortens_the_call(self):
         p = self.plan([say("go"), call(1, "Write", {"file_path": "/r/new.py", "content": BIG}), res(1, "File created"), call(2, "Bash", {"command": "ls"}), res(2, "a")])
@@ -197,6 +197,17 @@ class Judged(unittest.TestCase):
         self.assertNotIn("## Bash du", plan["restore"])
         self.assertEqual(plan["stats"]["repeated"], 2)
         self.assertLessEqual(len(plan["restore"]), compact.RESTORE_TOKENS * settings.CHARS_PER_TOKEN)
+
+    def test_the_list_and_the_index_say_what_each_result_was_and_why(self):
+        events = [say("fix the retry bug"), call(1, "Bash", {"command": "R=/r; du -sh $R/*", "description": "Size every folder"}), res(1, BIG),
+                  call(2, "Bash", {"command": "make"}), res(2, "yes it built " + BIG)]
+        plan, _ = self.build(events, apply=True, tag="session:abcd1234", recent=1)
+        self.assertIn("\n- 001-Bash.txt: Size every folder", plan["restore"], "the agent's own words, not the command")
+        self.assertIn("## Bash make", plan["restore"])
+        index = Path(plan["index"]).read_text()
+        self.assertRegex(index, r"- move \(p 0\.\d\d\): Bash Size every folder → 001-Bash\.txt")
+        self.assertRegex(index, r"- keep \(recent, p 0\.\d\d\): Bash make → 002-Bash\.txt")
+        self.assertIn("# Bash R=/r; du -sh $R/*", Path(plan["dir"], "001-Bash.txt").read_text(), "the saved file keeps the command")
 
     def test_the_latest_results_are_judged_for_the_block_but_never_touched(self):
         events = [say("fix the retry bug"), call(1, "Read", {"file_path": "/r/a.py"}), res(1, "yes " + BIG),

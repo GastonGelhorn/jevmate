@@ -311,6 +311,22 @@ def describe(it: dict) -> str:
     return s[:140] + ("…" if len(s) > 140 else "")
 
 
+def label(it: dict) -> str:
+    """What the call was for, in the agent's own words when it gave them (a command's description); else `describe`."""
+    d = (it["input"] or {}).get("description")
+    if isinstance(d, str) and d.strip():
+        d = " ".join(d.split())
+        return d[:140] + ("…" if len(d) > 140 else "")
+    return describe(it)
+
+
+def _reason(r: dict) -> str:
+    """Why a saved result got its action, for the index: a rule, Jev's answer, or that nobody judged it."""
+    why = {"jev": "", "recent": "recent", "unjudged": "not judged"}.get(r["why"], WHY.get(r["why"], r["why"]))
+    p = f"p {r['p']:.2f}" if r.get("p") is not None else ""
+    return ", ".join(x for x in (why, p) if x)
+
+
 SHELL_READER = re.compile(r"^(?:cat|nl|head|tail|less|more|bat|sed|awk)$")
 FULL_READER = {"cat", "nl", "bat", "less", "more"}
 _PREFIX = re.compile(r"^\s*(?:(?:cd|pushd)\s+\S+|export\s+\w+=\S*|\w+=\S*|true|set\s+-\S+)\s*(?:&&|;)\s*")
@@ -518,7 +534,7 @@ def build(events: list, *, client=None, client_error: str | None = None, apply: 
     rows: list[dict] = []
     cands: list[int] = []
     for i, it in enumerate(items):
-        row = {"id": it["id"], "tool": it["tool"], "input": describe(it), "chars": len(it["text"]), "tokens": est_tokens(len(it["text"])),
+        row = {"id": it["id"], "tool": it["tool"], "input": describe(it), "label": label(it), "chars": len(it["text"]), "tokens": est_tokens(len(it["text"])),
                "error": it["error"], "action": "keep", "why": "", "p": None, "path": None}
         if len(it["text"]) < min_chars:
             row["why"] = "small"
@@ -649,7 +665,8 @@ def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, mi
     index = None
     if folder is not None:
         lines = ["# Saved by jev compact before a compaction", "",
-                 *[f"- {r['action']}: {r['tool']} {r['input']} → {os.path.basename(r['path'] or '')}" for _, r in saved]]
+                 *[f"- {r['action']}{f' ({_reason(r)})' if _reason(r) else ''}: {r['tool']} {r.get('label') or r['input']} → "
+                   f"{os.path.basename(r['path'] or '')}" for _, r in saved]]
         index = str(folder / "index.md")
         Path(index).write_text("\n".join(lines) + "\n", encoding="utf-8", errors="replace")
     room = int(budget * settings.CHARS_PER_TOKEN)
@@ -678,7 +695,7 @@ def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, mi
         out.append(title)
         used += len(title)
         for r in rest:
-            line = f"\n- {os.path.basename(r['path'])}: {r['tool']} {r['input'][:110]}"
+            line = f"\n- {os.path.basename(r['path'])}: {(r.get('label') or r['input'])[:110]}"
             if used + len(line) > room:
                 out.append(f"\n- … {len(rest) - rest.index(r)} more in the index")
                 break
