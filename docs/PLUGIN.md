@@ -174,7 +174,7 @@ back to `py -3` when `python3` is not on the PATH.
 
 ## Backends
 
-Any server that answers `POST /v1/systemone` works: `jev config set backend typesafe|openrouter|ollaya|von`,
+Any server that answers `POST /v1/systemone` works: `jev config set backend typesafe|openrouter|ollama|ollaya|von`,
 or `jev config set backend http://host:port` for another one. A local server (plain http, or a loopback
 host) needs no key; `jev doctor` says which backend is in use. ollaya serves open decision models on
 `localhost:11435`; von serves its open System One model on `localhost:8000` (docker). Thresholds tuned

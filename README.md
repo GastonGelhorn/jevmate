@@ -192,8 +192,9 @@ jev diff --ref origin/main --min-level shared                             # the 
 ## Backends
 
 jev runs against TypeSafe's hosted API, OpenRouter, or any server that answers the same
-`/v1/systemone` endpoint, so no single host is a dependency. `jev config set backend ollaya` or
-`von` points at the open models running on your machine, with no key; `jev config set backend
+`/v1/systemone` endpoint, so no single host is a dependency. `jev config set backend ollama` (Ollama
+0.35+ and its decision models, `nimble` or `tev1`), `ollaya` or `von` points at the open models
+running on your machine, with no key; `jev config set backend
 http://host:port` points anywhere else. Thresholds are per model, so run `jev tune` again after
 switching.
 

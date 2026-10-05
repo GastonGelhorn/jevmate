@@ -27,7 +27,7 @@ CONFIG_KEYS = {
     "cache": ("cache", str, "on | off: the local answer cache (default on; --no-cache skips it once)"),
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
-    "backend": ("backend", str, "typesafe | openrouter | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
+    "backend": ("backend", str, "typesafe | openrouter | ollama | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
     "compact": ("compact_mode", str, "on | auto | off: judge the large tool results before Claude Code or Codex compacts; auto also lets the plugin's mod start one in Claude Code (the plugin's compact_mode wins)"),
 }
 

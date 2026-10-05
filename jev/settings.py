@@ -34,6 +34,7 @@ BACKENDS = {  # name -> (base url, default model). Any server that answers POST 
     "typesafe": (VENDOR_URL, "jev-latest"),
     "openrouter": ("https://openrouter.ai/api", "~typesafe/jev-latest"),
     "ollaya": ("http://localhost:11435", "laya"),       # local, open decision models, no key needed
+    "ollama": ("http://localhost:11434", "nimble"),     # local, Ollama 0.35+ serves decision models (nimble, tev1), no key needed
     "von": ("http://localhost:8000", "von-1.3.0"),       # local, open System One model, no key needed
 }
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}

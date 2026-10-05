@@ -12,7 +12,7 @@ pipx) installs the same package with a `jev` entry point, minus the skill symlin
 
 The key: `jev auth set <key>`, or `TYPESAFE_API_KEY`, or `--api-key`. The backend: `--model`, the
 `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL` variables, then `jev config set backend
-typesafe|openrouter|ollaya|von|http://host:port`, then the vendor's host. A local server needs no key. The config file matters because an agent's tool shell, cron and launchd
+typesafe|openrouter|ollama|ollaya|von|http://host:port`, then the vendor's host. A local server needs no key. The config file matters because an agent's tool shell, cron and launchd
 start without a profile.
 
 Claude Code: `jev hooks install` and `jev statusline install` write absolute commands into
