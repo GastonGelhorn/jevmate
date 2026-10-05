@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 
 from . import cache, ledger, settings
 from ._version import VERSION
-from .errors import AuthError, DryRun, JevError, NetworkError, UsageError
+from .errors import AuthError, DryRun, JevError, NetworkError, TooSlow, UsageError
 from .questions import validate
 
 _THROTTLE = None
-TOO_LONG = re.compile(r"HTTP 400\b.*(\btokens?\b.*\bexpected\b|context length|too long|questions)", re.I | re.S)
 
 
 def _throttle():
@@ -25,6 +23,35 @@ def _throttle():
 
 def _backoff(attempt: int) -> float:
     return min(8.0, 0.5 * 2 ** (attempt - 1))
+
+
+def _fit(state, excess: int):
+    """The state with its longest text shortened by `excess` bytes and a margin, cut in the middle."""
+    def longest(o, path=()):
+        best = (len(o.encode("utf-8")), path) if isinstance(o, str) else (0, None)
+        items = o.items() if isinstance(o, dict) else enumerate(o) if isinstance(o, list) else ()
+        for k, v in items:
+            cand = longest(v, path + (k,))
+            if cand[0] > best[0]:
+                best = cand
+        return best
+
+    size, path = longest(state)
+    if path is None:
+        return state
+    text = state
+    for k in path:
+        text = text[k]
+    keep = max(0, len(text) - int((excess + 400) * 1.1))
+    cut = f"{text[:keep * 2 // 3]}\n… [{len(text) - keep:,} characters cut to fit the backend] …\n{text[len(text) - keep // 3:]}"
+    if not path:
+        return cut
+    out = json.loads(json.dumps(state))
+    node = out
+    for k in path[:-1]:
+        node = node[k]
+    node[path[-1]] = cut
+    return out
 
 
 def serialize(body: dict) -> bytes:
@@ -60,7 +87,6 @@ class Client:
         self.last_attempts = 0
         self._transport = transport
         self.on_call = on_call  # told of every request that went out: None when it was answered, the error when it failed
-        self._long: Client | None = None
 
     @property
     def transport(self):
@@ -74,12 +100,18 @@ class Client:
         if state is None or state == "" or state == {} or state == []:
             raise UsageError("state is empty")
         validate(questions)
+        if settings.is_local(self.base_url) and not settings.RUNTIME.dry_run:
+            need = len(questions) * settings.local_seconds_per_question()
+            if need > self.timeout:
+                raise TooSlow(f"{len(questions)} questions would take about {need:.0f} s on the local model, more than the {self.timeout:.0f} s this call has")
+        cap_q, cap_b = settings.max_questions(), settings.max_body()
         body = {"model": model or self.model, "questions": questions, "state": state}
         payload = serialize(body)
-        if len(payload) > settings.short_chars() or len(questions) > settings.SHORT_QUESTIONS:
-            long = self.long_client()
-            if long is not None:
-                return long.ask(state, questions)
+        if (cap_q and len(questions) > cap_q) or (cap_b and len(payload) > cap_b and len(questions) > 1):
+            return self._in_batches(state, questions, model, cap_q, cap_b)
+        if cap_b and len(payload) > cap_b:  # one question, and the state alone does not fit: its longest text is cut in the middle
+            body["state"] = _fit(state, len(payload) - cap_b)
+            payload = serialize(body)
         if settings.RUNTIME.dry_run:
             raise DryRun(self.base_url + settings.ENDPOINT, body)
         use_cache = cache.enabled()
@@ -97,9 +129,6 @@ class Client:
         try:
             resp = self._call("POST", settings.ENDPOINT, payload)
         except JevError as e:
-            long = self.long_client() if TOO_LONG.search(str(e)) else None
-            if long is not None:  # the main backend's window was shorter than the estimate allowed for
-                return long.ask(state, questions)
             self._record(None, len(questions), err=e)
             if self.on_call:
                 self.on_call(e)
@@ -111,15 +140,35 @@ class Client:
             cache.put(key, resp)
         return resp
 
-    def long_client(self) -> "Client | None":
-        """The client for the long backend, when one is set and differs from this one."""
-        if self._long is None:
-            target = settings.long_backend()
-            if target is None or target[0] == self.base_url:
-                return None
-            self._long = Client(model=target[1] or None, timeout=self.timeout, retries=self.retries, base_url=target[0],
-                                record=self.record, label=self.label, on_call=self.on_call)
-        return self._long
+    def _in_batches(self, state, questions: dict, model: str | None, cap_q: int, cap_b: int) -> dict:
+        """A request with more questions, or more bytes, than the backend takes, sent as several and answered as one."""
+        base = len(serialize({"model": model or self.model, "questions": {}, "state": state}))
+        batches: list[list[str]] = [[]]
+        size = base
+        for name, q in questions.items():
+            n = len(serialize({name: q}))
+            if batches[-1] and ((cap_q and len(batches[-1]) >= cap_q) or (cap_b and size + n > cap_b)):
+                batches.append([])
+                size = base
+            batches[-1].append(name)
+            size += n
+        answers: dict = {}
+        usage = {"input_tokens": 0, "output_tokens": 0}
+        cached = True
+        resp: dict = {}
+        workers = min(settings.parallel(), len(batches))
+        if workers > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(workers) as pool:
+                results = list(pool.map(lambda names: self.ask(state, {n: questions[n] for n in names}, model), batches))
+        else:
+            results = [self.ask(state, {n: questions[n] for n in names}, model) for names in batches]
+        for resp in results:
+            answers.update(resp.get("answers") or {})
+            for k in usage:
+                usage[k] += int((resp.get("usage") or {}).get(k) or 0)
+            cached = cached and bool(resp.get("cached"))
+        return {**resp, "answers": answers, "usage": usage, **({"cached": True} if cached else {})}
 
     def models(self) -> dict:
         return self._call("GET", "/v1/models")

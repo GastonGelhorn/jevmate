@@ -111,24 +111,38 @@ def default_model() -> str:
     return os.environ.get("TYPESAFE_DEFAULT_MODEL") or config().get("model") or "jev-latest"
 
 
-SHORT_CHARS = 7_000   # with a long backend set, requests up to this many characters stay on the main one
-SHORT_QUESTIONS = 64  # and up to this many questions (Ollama's decision models take 64 at most)
+LOCAL_TIMEOUT = 300.0  # a model on this machine reads a long request slowly; a command waits for it
+LOCAL_SECONDS_PER_QUESTION = 2.0  # tev1 on an M4 Pro, measured: a call that cannot finish in its time is not sent
 
 
-def long_backend() -> tuple[str, str] | None:
-    """Where the requests too long for the main backend go: (base url, model), or None. A small local decoder
-    answers short questions well and long ones slowly or not at all; an encoder takes the long ones in seconds."""
-    url = (os.environ.get("JEV_LONG_BASE_URL") or config().get("long_base_url") or "").rstrip("/")
-    if not url:
-        return None
-    return url, os.environ.get("JEV_LONG_MODEL") or config().get("long_model") or ""
+def local_seconds_per_question() -> float:
+    v = config().get("local_seconds_per_question")
+    return float(v) if v else LOCAL_SECONDS_PER_QUESTION
 
 
-def short_chars() -> int:
-    try:
-        return int(os.environ.get("JEV_SHORT_CHARS") or config().get("short_chars") or SHORT_CHARS)
-    except ValueError:
-        return SHORT_CHARS
+def max_questions() -> int:
+    """Questions per request, 0 for no limit. Ollama takes 64 but reads the whole request again for each one,
+    so a request of one question, several at a time, is the fastest there and keeps each item apart."""
+    v = config().get("max_questions")
+    if v:
+        return int(v)
+    return 1 if backend_name() == "ollama" else 0
+
+
+def parallel() -> int:
+    """Requests in flight when one is sent in batches: 4 on Ollama, which serves several at once."""
+    v = config().get("parallel")
+    if v:
+        return max(1, int(v))
+    return 4 if backend_name() == "ollama" else 1
+
+
+def max_body() -> int:
+    """Bytes per request body the backend takes, 0 for no limit: Ollama refuses a body over 64 KiB."""
+    v = config().get("max_body")
+    if v:
+        return int(v)
+    return 60_000 if backend_name() == "ollama" else 0
 
 
 def price_per_mtok() -> float:
@@ -147,9 +161,8 @@ def price_usd(input_tokens: int) -> float:
 
 
 def billed() -> bool:
-    """Do requests made now cost money? Not when every backend set is a server on this machine."""
-    lb = long_backend()
-    return not (is_local(base_url()) and (lb is None or is_local(lb[0])))
+    """Do requests made now cost money? Not on a server on this machine."""
+    return not is_local(base_url())
 
 
 def cost_usd(input_tokens: int) -> float:

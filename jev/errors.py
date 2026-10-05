@@ -23,6 +23,10 @@ class NetworkError(JevError):
     exit_code = 5
 
 
+class TooSlow(JevError):
+    """A local model would take longer than the call has: not sent. The caller goes on without the answer."""
+
+
 class DryRun(Exception):
     """Raised instead of sending when --dry-run asked to see the request. Carries it."""
 

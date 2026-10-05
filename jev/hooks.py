@@ -177,11 +177,19 @@ def _emit(event: str, **fields) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, **fields}}))
 
 
+# On a model running on this machine, which reads long input slowly, each hook may take most of the time its
+# hook entry allows (hooks.json): the guard 10 s, after-bash 25, screen 15, session start 20, PreCompact 120.
+LOCAL_TIMEOUTS = {"hook:guard": 8, "hook:screen": 13, "hook:trim": 22, "hook:triage": 22, "hook:inspect": 17, "hook:honesty": 13,
+                  "hook:compact": 110, "hook:route": 5, "hook:delegate": 7, "hook:shift": 25}
+
+
 def _client(label: str, timeout_env: str, default: str):
+    from . import settings
     from .client import Client
     from .errors import JevError
+    timeout = os.environ.get(timeout_env) or (LOCAL_TIMEOUTS.get(label, default) if settings.is_local(settings.base_url()) else default)
     try:
-        return Client(timeout=float(os.environ.get(timeout_env, default)), retries=0, label=label, on_call=_CALLS.append)
+        return Client(timeout=float(timeout), retries=0, label=label, on_call=_CALLS.append)
     except JevError as e:  # no key: the person hears of it like any other failure
         _CALLS.append(e)
         raise
@@ -964,8 +972,8 @@ def _api_notice(deliver: bool, consume: bool = True) -> str:
     except (OSError, ValueError):
         before = None
     state = before
-    if _CALLS and _CALLS[-1] is not None:
-        e = _CALLS[-1]
+    if _CALLS and _CALLS[-1] is not None and not (settings.is_local(settings.base_url()) and "timed out" in str(_CALLS[-1])):
+        e = _CALLS[-1]  # a local model slower than a hook's time has not failed; one that does not answer has
         kind, reason = _api_kind(e), _api_reason(e)
         if state and state.get("kind") == kind and state.get("told"):
             state = {**state, "reason": reason}  # told already; the band still shows why

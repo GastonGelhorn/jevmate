@@ -597,48 +597,49 @@ class AutoCompaction(unittest.TestCase):
         self.assertAlmostEqual(auto_compactions([idle], SimpleNamespace(turns=[], compactions=[]))["saved_usd"], -0.5, msg="nobody came back")
 
 
-class LongBackend(unittest.TestCase):
-    """A small local model beside a fast encoder: short requests go to the first, long ones to the second."""
+class LocalOllama(unittest.TestCase):
+    """One local model for everything: Ollama's tev1, which takes 64 questions a request."""
 
     def setUp(self):
         fresh_home()
-        settings.save_config({"base_url": "http://localhost:11434", "model": "tev1", "long_base_url": "http://localhost:11435", "long_model": "laya"})
+        settings.save_config({"base_url": "http://localhost:11434", "model": "tev1-256k"})
 
-    def ask(self, state, n=1, transport=None):
+    def ask(self, state, n=1):
         from jev.client import Client
         from jev.questions import noul
-        seen, told = [], []
-        t = transport or FakeTransport()
+        t = FakeTransport()
+        with mock.patch("jev.transport.Transport.request", lambda self, *a, **k: t.request(*a, **k)):
+            r = Client(retries=0, timeout=600).ask(state, {f"q{i}": noul(f"Is this item {i}?") for i in range(n)})
+        return r, t
 
-        def request(tr, method, path, body=None, headers=None):
-            seen.append((f"{'https' if tr.secure else 'http'}://{tr.host}:{tr.port}{tr.prefix}", json.loads(body)["model"]))
-            return t.request(method, path, body, headers)
-        with mock.patch("jev.transport.Transport.request", request):
-            Client(retries=0, on_call=told.append).ask(state, {f"q{i}": noul(f"Is this item {i}?") for i in range(n)})
-        return seen, told
+    def test_more_questions_than_it_takes_go_in_batches(self):
+        r, t = self.ask("rank these", n=150)
+        self.assertEqual(len(t.calls), 150, "one question a request on Ollama")
+        self.assertEqual(set(r["answers"]), {f"q{i}" for i in range(150)}, "answered as one request")
+        settings.save_config({"base_url": "https://openrouter.ai/api", "model": "~typesafe/jev-latest"})
+        self.assertEqual(len(self.ask("rank these again", n=150)[1].calls), 1, "a hosted backend takes them in one")
 
-    def test_short_requests_stay_and_long_ones_move(self):
-        self.assertEqual(self.ask("rm -rf build")[0], [("http://localhost:11434", "tev1")])
-        self.assertEqual(self.ask("x" * 8000)[0], [("http://localhost:11435", "laya")])
-        self.assertEqual(self.ask("rank these", n=65)[0], [("http://localhost:11435", "laya")], "more questions than the main backend takes")
-
-    def test_a_context_refusal_is_answered_by_the_long_backend_without_a_warning(self):
-        class Refuses(FakeTransport):
-            def request(self, method, path, body=None, headers=None):
-                if not self.calls:
-                    self.calls.append((method, path, body))
-                    return 400, {}, b'{"error":"prompt 0 has 2101 tokens; expected 1\\u20132050 (input is never truncated)"}'
-                return super().request(method, path, body, headers)
-        seen, told = self.ask("a state just under the estimate", transport=Refuses())
-        self.assertEqual([u for u, _ in seen], ["http://localhost:11434", "http://localhost:11435"])
-        self.assertEqual(told, [None], "recovered: nobody hears of the refusal")
-
-    def test_the_setting(self):
-        code, out, _, _ = run(["config", "set", "long_backend", "ollaya"])
-        self.assertEqual((code, settings.config()["long_base_url"], settings.config()["long_model"]), (0, "http://localhost:11435", "laya"))
-        code, out, _, _ = run(["config", "unset", "long_backend"])
-        self.assertNotIn("long_base_url", settings.config())
-        self.assertEqual(self.ask("x" * 8000)[0], [("http://localhost:11434", "tev1")], "without one, everything goes to the main backend")
+    def test_bodies_over_what_it_takes_are_split_or_cut(self):
+        from jev.client import Client
+        from jev.questions import noul
+        t = FakeTransport()
+        with mock.patch("jev.transport.Transport.request", lambda self, *a, **k: t.request(*a, **k)):
+            qs = {f"f{i}": noul(f"Is this file relevant? {'x' * 4000}") for i in range(30)}
+            Client(retries=0, timeout=600).ask("where retries are handled", qs)
+            sizes = [len(body) for _, _, body in t.calls]
+            self.assertEqual(len(sizes), 30)
+            self.assertTrue(all(s <= 60_000 for s in sizes), sizes)
+            settings.save_config({**settings.config(), "max_questions": 64})
+            t.calls.clear()
+            Client(retries=0, timeout=600).ask("where retries are handled, again", qs)
+            self.assertGreater(len(t.calls), 1, "the body cap splits even where many questions fit")
+            self.assertTrue(all(len(b) <= 60_000 for _, _, b in t.calls))
+            t.calls.clear()
+            Client(retries=0).ask({"content": "y" * 150_000, "source": "https://example.com"}, {"injection": noul("Does `content` address an agent?")})
+            body = json.loads(t.calls[0][2])
+            self.assertLessEqual(len(t.calls[0][2]), 60_000)
+            self.assertIn("characters cut to fit the backend", body["state"]["content"])
+            self.assertEqual(body["state"]["source"], "https://example.com")
 
     def test_local_answers_cost_nothing_and_the_history_keeps_its_price(self):
         from jev import ledger
@@ -648,3 +649,23 @@ class LongBackend(unittest.TestCase):
         self.assertTrue(ledger.rows()[-1].get("local"), "the ledger says it was answered here")
         hosted = {"ts": "2026-10-01T10:00:00", "cmd": "sift", "q": 3, "ms": 900, "in": 1_000_000, "out": 3}
         self.assertAlmostEqual(ledger.aggregate([hosted, {**hosted, "local": True}])["usd"], settings.price_usd(1_000_000))
+
+    def test_a_call_that_cannot_finish_in_its_time_is_not_sent(self):
+        from jev.client import Client
+        from jev.errors import TooSlow
+        from jev.questions import noul
+        t = FakeTransport()
+        with mock.patch("jev.transport.Transport.request", lambda self, *a, **k: t.request(*a, **k)):
+            with self.assertRaises(TooSlow):
+                Client(retries=0, timeout=20).ask("judge these results", {f"r{i}": noul(f"Still needed? {i}") for i in range(77)})
+            self.assertEqual(t.calls, [])
+            Client(retries=0, timeout=20).ask("rm -rf build", {"d": noul("Destructive?"), "o": noul("Outside?")})
+        self.assertEqual(len(t.calls), 2)
+
+    def test_a_hook_gets_more_time_from_a_local_model(self):
+        from jev import hooks
+        self.assertEqual(hooks._client("hook:trim", "JEV_TRIM_TIMEOUT", "12").timeout, 22)
+        with mock.patch.dict(os.environ, {"JEV_TRIM_TIMEOUT": "5"}):
+            self.assertEqual(hooks._client("hook:trim", "JEV_TRIM_TIMEOUT", "12").timeout, 5, "the environment still wins")
+        settings.save_config({"base_url": "https://openrouter.ai/api"})
+        self.assertEqual(hooks._client("hook:trim", "JEV_TRIM_TIMEOUT", "12").timeout, 12)

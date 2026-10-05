@@ -46,7 +46,7 @@ def add_question_args(p) -> None:
 def add_common(p) -> None:
     p.add_argument("--model", default=None, help=f"model id or alias (default {settings.default_model()}); pin one in a tuned pipeline")
     p.add_argument("--api-key", default=None, help="override key resolution")
-    p.add_argument("--timeout", type=float, default=30.0)
+    p.add_argument("--timeout", type=float, default=None, help="seconds per request (default 30; 300 on a local backend)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--compact", action="store_true", help="single-line JSON")
     p.add_argument("--dry-run", action="store_true", help="print the request that would be sent, and send nothing")
@@ -166,8 +166,9 @@ def use_saved(args, question_attr: str = "instructions"):
 
 def client_for(args, label: str, record: bool = True):
     from ..client import Client
-    return Client(getattr(args, "api_key", None), getattr(args, "model", None), timeout=getattr(args, "timeout", 30.0),
-                  record=record, label=label)
+    from .. import settings
+    timeout = getattr(args, "timeout", None) or (settings.LOCAL_TIMEOUT if settings.is_local(settings.base_url()) else 30.0)
+    return Client(getattr(args, "api_key", None), getattr(args, "model", None), timeout=timeout, record=record, label=label)
 
 
 def out_path(p: str) -> Path:

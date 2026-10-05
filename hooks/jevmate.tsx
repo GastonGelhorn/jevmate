@@ -456,7 +456,7 @@ async function reading($: Api, prompt: string, kind: string): Promise<number | n
 
 async function shift($: Api, prompt: string): Promise<number | null> {
   const payload = { prompt, asked: recentPrompts, answered: lastAnswer, session_id: sessionId, judge: true }
-  const r = await jev($, ['hook', 'shift'], JSON.stringify(payload), 8_000)
+  const r = await jev($, ['hook', 'shift'], JSON.stringify(payload), 30_000) // in the background: a local model may take a while
   const last = lastLine(r?.stdout)
   if (!r || r.exitCode !== 0 || !last) return null
   try {
