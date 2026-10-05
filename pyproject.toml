@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevmate"
-version = "1.9.0"
+version = "1.9.1"
 description = "A fast decision layer for coding agents: a CLI, an MCP server and a Claude Code plugin around Jev, with measured thresholds"
 readme = "README.md"
 license = { file = "LICENSE" }
