@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up jev on this machine: the API key (TypeSafe or OpenRouter), the backend, and a health check.
+description: Set up jev on this machine: a local model (Ollama's tev1, no key) or an API key (TypeSafe or OpenRouter), the backend, and a health check.
 disable-model-invocation: true
 allowed-tools: ["Bash(jev *)"]
 ---
@@ -9,6 +9,10 @@ Set jev up. Never ask the person to paste an API key into the chat, and never ru
 contains one.
 
 1. Run `jev doctor`. If the key step fails, tell the person to run **in their own terminal** one of:
+   - with Ollama 0.35+ on this machine, no key: `ollama pull tev1`, the 32K variant the README's
+     Backends section shows (`ollama create tev1-32k`), then
+     `jev config set backend ollama && jev config set model tev1-32k`. Free and private, slower
+     than the hosted API (about a second a check), or
    - `jev auth set <key>` with a TypeSafe key from console.typesafe.ai, or
    - `jev auth set <key>` with an OpenRouter key (`sk-or-…`): the OpenRouter backend is configured
      automatically; `jev config set backend typesafe|openrouter` switches later.

@@ -1,9 +1,9 @@
 ---
 name: jev
-description: "Calibrated yes/no, pick-one and rubric decisions from the `jev` CLI (about 250 ms, $0.04 per million tokens, answers cached). Use when a judgment repeats over many items you should not read into context (classify, filter, rank, dedupe, triage tickets, notes, commits, log lines); when a search returns more files or hits than you should read (`jev sift` first); when a task says go through these N rows and decide X (`jev scaffold`); when a change needs the right tests first (`jev tests`), a red suite needs sorting (`jev failures`, `jev cluster`) or a diff needs review by risk (`jev diff`); when you want a calibrated probability instead of your own confidence before acting; or to verify your own output with a model that is not you. Not for generation, arithmetic, counting, dates, multi-step reasoning, or one small item you can judge in a glance."
+description: "Calibrated yes/no, pick-one and rubric decisions from the `jev` CLI (about 250 ms and $0.04 per million tokens hosted, free and slower on a local model; answers cached). Use when a judgment repeats over many items you should not read into context (classify, filter, rank, dedupe, triage tickets, notes, commits, log lines); when a search returns more files or hits than you should read (`jev sift` first); when a task says go through these N rows and decide X (`jev scaffold`); when a change needs the right tests first (`jev tests`), a red suite needs sorting (`jev failures`, `jev cluster`) or a diff needs review by risk (`jev diff`); when you want a calibrated probability instead of your own confidence before acting; or to verify your own output with a model that is not you. Not for generation, arithmetic, counting, dates, multi-step reasoning, or one small item you can judge in a glance."
 when_to_use: "jev, calibrated, gut check, second opinion, which of these files, before I read, too many hits, go through these rows, tag every, classify these, rank these, filter these, triage, which tests to run, tests affected, did my change break this, is this flaky, group these failures, root causes, review this diff, risky hunks, scope creep, watch the log for, tune the question, what threshold, label these, labelled set, prompt injection check, is this command destructive, how severe, which team or bucket, what did jev save, how much did jev save."
 metadata:
-  cost: one shell call, about 250 ms and under $0.0001 per request; rank and batch cost cents per thousand items
+  cost: one shell call, about 250 ms and under $0.0001 per request; rank and batch cost cents per thousand items. On a local model (Ollama's tev1) free, about 1 s a check and 2 s a question in larger calls
   before-volume: run `jev tune` on 30 labelled rows before a question decides thousands; save the winner with --save
 ---
 
@@ -31,6 +31,10 @@ rg -l curation . | jev sift --files-from - --query "how layouts resolve" --budge
 
 Each line is `p  tokens-to-read  path[:line name]`; `--budget-tokens` marks where reading down the
 list would exceed the budget. It decides what you read *first*. You still read it.
+
+On a local model (`jev doctor` names the backend) each question takes about 2 s, so sift a narrowed
+list, a few dozen files rather than two hundred hits. A call that could not finish in its time stops
+with an error that says so.
 
 **Before a question decides anything at volume: `jev tune`.** The same question scored 63.8% at
 threshold 0.50 and 76.2% at its best threshold on 80 labelled commits; four phrasings of one
