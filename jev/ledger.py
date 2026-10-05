@@ -104,8 +104,10 @@ def rows(since: str | None = None, tail_bytes: int | None = None) -> list[dict]:
 
 
 def usage_row(label: str, n_questions: int, ms: float, resp: dict | None, request_id: str = "",
-              attempts: int = 1, cached: bool = False, err: Exception | None = None) -> dict:
+              attempts: int = 1, cached: bool = False, err: Exception | None = None, local: bool = False) -> dict:
     row = {"ts": now_iso(), "cmd": label, "agent": agent_tag(), "q": n_questions, "ms": round(ms), "cwd": os.getcwd()}
+    if local:
+        row["local"] = True  # answered on this machine: no charge
     if resp is not None:
         u = resp.get("usage") or {}
         row.update(model=resp.get("model"), **{"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0)})
@@ -130,7 +132,7 @@ def aggregate(sel: list[dict]) -> dict:
     return {"requests": len(sel), "errors": len(sel) - len(ok), "cached": sum(1 for r in ok if r.get("cached")),
             "questions": sum(r.get("q", 0) for r in ok), "input_tokens": tin, "output_tokens": sum(r.get("out", 0) for r in ok),
             "not_read_tokens": tin + sum(r.get("cached_in", 0) or 0 for r in ok),
-            "usd": round(settings.cost_usd(tin), 6), "avg_ms": round(sum(ms) / len(ms)) if ms else 0,
+            "usd": round(settings.price_usd(sum(r.get("in", 0) for r in ok if not r.get("local"))), 6), "avg_ms": round(sum(ms) / len(ms)) if ms else 0,
             "p50_ms": pct(0.5), "p95_ms": pct(0.95), "max_ms": ms[-1] if ms else 0}
 
 

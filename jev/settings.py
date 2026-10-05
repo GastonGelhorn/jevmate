@@ -34,7 +34,7 @@ BACKENDS = {  # name -> (base url, default model). Any server that answers POST 
     "typesafe": (VENDOR_URL, "jev-latest"),
     "openrouter": ("https://openrouter.ai/api", "~typesafe/jev-latest"),
     "ollaya": ("http://localhost:11435", "laya"),       # local, open decision models, no key needed
-    "ollama": ("http://localhost:11434", "nimble"),     # local, Ollama 0.35+ serves decision models (nimble, tev1), no key needed
+    "ollama": ("http://localhost:11434", "tev1"),       # local, Ollama 0.35+ serves decision models (tev1, nimble), no key needed
     "von": ("http://localhost:8000", "von-1.3.0"),       # local, open System One model, no key needed
 }
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
@@ -111,6 +111,26 @@ def default_model() -> str:
     return os.environ.get("TYPESAFE_DEFAULT_MODEL") or config().get("model") or "jev-latest"
 
 
+SHORT_CHARS = 7_000   # with a long backend set, requests up to this many characters stay on the main one
+SHORT_QUESTIONS = 64  # and up to this many questions (Ollama's decision models take 64 at most)
+
+
+def long_backend() -> tuple[str, str] | None:
+    """Where the requests too long for the main backend go: (base url, model), or None. A small local decoder
+    answers short questions well and long ones slowly or not at all; an encoder takes the long ones in seconds."""
+    url = (os.environ.get("JEV_LONG_BASE_URL") or config().get("long_base_url") or "").rstrip("/")
+    if not url:
+        return None
+    return url, os.environ.get("JEV_LONG_MODEL") or config().get("long_model") or ""
+
+
+def short_chars() -> int:
+    try:
+        return int(os.environ.get("JEV_SHORT_CHARS") or config().get("short_chars") or SHORT_CHARS)
+    except ValueError:
+        return SHORT_CHARS
+
+
 def price_per_mtok() -> float:
     v = config().get("price_per_mtok_in")
     return float(v) if v else PRICE_PER_MTOK_IN
@@ -121,8 +141,20 @@ def agent_price() -> float:
     return float(v) if v else DEFAULT_AGENT_PRICE
 
 
-def cost_usd(input_tokens: int) -> float:
+def price_usd(input_tokens: int) -> float:
+    """Tokens at the hosted list price, whatever answers now: for rows the ledger says were billed."""
     return input_tokens / 1_000_000 * price_per_mtok()
+
+
+def billed() -> bool:
+    """Do requests made now cost money? Not when every backend set is a server on this machine."""
+    lb = long_backend()
+    return not (is_local(base_url()) and (lb is None or is_local(lb[0])))
+
+
+def cost_usd(input_tokens: int) -> float:
+    """What a request made now costs: nothing on a local backend."""
+    return price_usd(input_tokens) if billed() else 0.0
 
 
 def rpm_limit() -> int:

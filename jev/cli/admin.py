@@ -28,6 +28,8 @@ CONFIG_KEYS = {
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
     "backend": ("backend", str, "typesafe | openrouter | ollama | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
+    "long_backend": ("long_base_url", str, f"where requests over short_chars or {settings.SHORT_QUESTIONS} questions go, same values as backend; for a small local model (ollama) beside a fast encoder (ollaya)"),
+    "short_chars": ("short_chars", int, f"with a long_backend, requests up to this many characters stay on the main backend (default {settings.SHORT_CHARS:,})"),
     "compact": ("compact_mode", str, "on | auto | off: judge the large tool results before Claude Code or Codex compacts; auto also lets the plugin's mod start one in Claude Code (the plugin's compact_mode wins)"),
 }
 
@@ -150,6 +152,11 @@ def cmd_doctor(args) -> int:
     else:
         step("key", lambda: "{} from {}".format(*(lambda k, s: (settings.mask(k), s))(*settings.resolve_key(args.api_key))))
     step("backend", lambda: f"{settings.backend_name()} · {base} · model {args.model or settings.default_model()}" + (" · local, no key needed" if settings.is_local(base) else ""))
+    lb = settings.long_backend()
+    if lb:
+        from ..client import Client
+        step("long backend", lambda: f"{lb[0]} · model {lb[1] or '(its default)'} · requests over {settings.short_chars():,} characters or "
+                                     f"{settings.SHORT_QUESTIONS} questions · models {[m.get('name') for m in Client(base_url=lb[0], record=False, retries=0, timeout=5).models().get('models', [])][:4]}")
     c = client_for(args, "doctor", record=False)
     step("GET /v1/models", lambda: f"{[m.get('name') for m in c.models().get('models', [])]} in {c.last_ms:.0f} ms", optional=True)
 
@@ -193,7 +200,8 @@ def cmd_config(args) -> int:
             return 0
         print(f"{settings.CONFIG_FILE}" + ("" if settings.CONFIG_FILE.exists() else " (not created yet)"))
         for k, (real, _, desc) in CONFIG_KEYS.items():
-            shown = settings.backend_name() if k == "backend" else str(cfg.get(real, "-"))
+            shown = (settings.backend_name() if k == "backend"
+                     else f"{cfg.get('long_base_url')} · {cfg.get('long_model') or '-'}" if k == "long_backend" and cfg.get("long_base_url") else str(cfg.get(real, "-")))
             print(f"  {k:<15} {shown:<28} {desc}")
         extra = {k: v for k, v in cfg.items() if k not in {r for r, _, _ in CONFIG_KEYS.values()}}
         if extra:
@@ -221,6 +229,24 @@ def cmd_config(args) -> int:
                   + ("; no key needed)" if settings.is_local(cfg["base_url"]) else ")"))
             return 0
         raise UsageError(f"jev config set backend <{'|'.join(settings.BACKENDS)}|http(s)://host[:port]>")
+    if args.key == "long_backend":
+        if args.action == "unset":
+            cfg.pop("long_base_url", None)
+            cfg.pop("long_model", None)
+            settings.save_config(cfg)
+            print("long backend unset: every request goes to the main backend")
+            return 0
+        if args.value in settings.BACKENDS:
+            url, model = settings.BACKENDS[args.value]
+        elif args.value and args.value.startswith(("http://", "https://")):
+            url, model = args.value.rstrip("/"), cfg.get("long_model") or ""
+        else:
+            raise UsageError(f"jev config set long_backend <{'|'.join(settings.BACKENDS)}|http(s)://host[:port]>")
+        cfg.update(long_base_url=url, long_model=model)
+        settings.save_config(cfg)
+        print(f"long backend: {url} · model {model or '(its default)'} · requests over {settings.short_chars():,} characters or "
+              f"{settings.SHORT_QUESTIONS} questions go there")
+        return 0
     real, typ, _ = CONFIG_KEYS[args.key]
     if args.action == "unset":
         cfg.pop(real, None)
@@ -398,7 +424,7 @@ def cmd_usage(args) -> int:
     credits = budget = None
     if cfg.get("credits_usd") is not None:
         as_of = cfg.get("credits_as_of") or rows[0]["ts"]
-        spent = cost_usd(sum(r.get("in", 0) for r in rows if r["ts"] >= as_of))
+        spent = settings.price_usd(sum(r.get("in", 0) for r in rows if r["ts"] >= as_of and not r.get("local")))
         remaining = float(cfg["credits_usd"]) - spent
         credits = {"credits_usd": float(cfg["credits_usd"]), "as_of": as_of, "spent_since": round(spent, 6), "remaining_usd": round(remaining, 6),
                    "remaining_mtok": round(remaining / price_per_mtok(), 3) if remaining > 0 else 0.0,

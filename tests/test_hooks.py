@@ -347,7 +347,7 @@ class LocalBackend(unittest.TestCase):
         self.assertEqual(settings.config()["base_url"], "http://localhost:9000")
         self.assertEqual(settings.backend_name(), "local")
         code, out, _, _ = run(["config", "set", "backend", "ollama"])
-        self.assertEqual((settings.config()["base_url"], settings.config()["model"], settings.backend_name()), ("http://localhost:11434", "nimble", "ollama"))
+        self.assertEqual((settings.config()["base_url"], settings.config()["model"], settings.backend_name()), ("http://localhost:11434", "tev1", "ollama"))
         code, out, _, _ = run(["config", "set", "backend", "von"])
         self.assertEqual(settings.config()["model"], "von-1.3.0")
 
@@ -595,3 +595,56 @@ class AutoCompaction(unittest.TestCase):
                                msg="back while it would still have held: the first request would have read it from the cache")
         self.assertAlmostEqual(auto_compactions([{**idle, "after": 0}], late)["saved_usd"], -0.5, msg="without the size after, only the cost is known")
         self.assertAlmostEqual(auto_compactions([idle], SimpleNamespace(turns=[], compactions=[]))["saved_usd"], -0.5, msg="nobody came back")
+
+
+class LongBackend(unittest.TestCase):
+    """A small local model beside a fast encoder: short requests go to the first, long ones to the second."""
+
+    def setUp(self):
+        fresh_home()
+        settings.save_config({"base_url": "http://localhost:11434", "model": "tev1", "long_base_url": "http://localhost:11435", "long_model": "laya"})
+
+    def ask(self, state, n=1, transport=None):
+        from jev.client import Client
+        from jev.questions import noul
+        seen, told = [], []
+        t = transport or FakeTransport()
+
+        def request(tr, method, path, body=None, headers=None):
+            seen.append((f"{'https' if tr.secure else 'http'}://{tr.host}:{tr.port}{tr.prefix}", json.loads(body)["model"]))
+            return t.request(method, path, body, headers)
+        with mock.patch("jev.transport.Transport.request", request):
+            Client(retries=0, on_call=told.append).ask(state, {f"q{i}": noul(f"Is this item {i}?") for i in range(n)})
+        return seen, told
+
+    def test_short_requests_stay_and_long_ones_move(self):
+        self.assertEqual(self.ask("rm -rf build")[0], [("http://localhost:11434", "tev1")])
+        self.assertEqual(self.ask("x" * 8000)[0], [("http://localhost:11435", "laya")])
+        self.assertEqual(self.ask("rank these", n=65)[0], [("http://localhost:11435", "laya")], "more questions than the main backend takes")
+
+    def test_a_context_refusal_is_answered_by_the_long_backend_without_a_warning(self):
+        class Refuses(FakeTransport):
+            def request(self, method, path, body=None, headers=None):
+                if not self.calls:
+                    self.calls.append((method, path, body))
+                    return 400, {}, b'{"error":"prompt 0 has 2101 tokens; expected 1\\u20132050 (input is never truncated)"}'
+                return super().request(method, path, body, headers)
+        seen, told = self.ask("a state just under the estimate", transport=Refuses())
+        self.assertEqual([u for u, _ in seen], ["http://localhost:11434", "http://localhost:11435"])
+        self.assertEqual(told, [None], "recovered: nobody hears of the refusal")
+
+    def test_the_setting(self):
+        code, out, _, _ = run(["config", "set", "long_backend", "ollaya"])
+        self.assertEqual((code, settings.config()["long_base_url"], settings.config()["long_model"]), (0, "http://localhost:11435", "laya"))
+        code, out, _, _ = run(["config", "unset", "long_backend"])
+        self.assertNotIn("long_base_url", settings.config())
+        self.assertEqual(self.ask("x" * 8000)[0], [("http://localhost:11434", "tev1")], "without one, everything goes to the main backend")
+
+    def test_local_answers_cost_nothing_and_the_history_keeps_its_price(self):
+        from jev import ledger
+        self.assertFalse(settings.billed())
+        self.assertEqual(settings.cost_usd(1_000_000), 0.0)
+        self.ask("rm -rf build")
+        self.assertTrue(ledger.rows()[-1].get("local"), "the ledger says it was answered here")
+        hosted = {"ts": "2026-10-01T10:00:00", "cmd": "sift", "q": 3, "ms": 900, "in": 1_000_000, "out": 3}
+        self.assertAlmostEqual(ledger.aggregate([hosted, {**hosted, "local": True}])["usd"], settings.price_usd(1_000_000))

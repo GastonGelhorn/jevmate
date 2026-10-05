@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from . import cache, ledger, settings
@@ -11,6 +12,7 @@ from .errors import AuthError, DryRun, JevError, NetworkError, UsageError
 from .questions import validate
 
 _THROTTLE = None
+TOO_LONG = re.compile(r"HTTP 400\b.*(\btokens?\b.*\bexpected\b|context length|too long|questions)", re.I | re.S)
 
 
 def _throttle():
@@ -58,6 +60,7 @@ class Client:
         self.last_attempts = 0
         self._transport = transport
         self.on_call = on_call  # told of every request that went out: None when it was answered, the error when it failed
+        self._long: Client | None = None
 
     @property
     def transport(self):
@@ -73,6 +76,10 @@ class Client:
         validate(questions)
         body = {"model": model or self.model, "questions": questions, "state": state}
         payload = serialize(body)
+        if len(payload) > settings.short_chars() or len(questions) > settings.SHORT_QUESTIONS:
+            long = self.long_client()
+            if long is not None:
+                return long.ask(state, questions)
         if settings.RUNTIME.dry_run:
             raise DryRun(self.base_url + settings.ENDPOINT, body)
         use_cache = cache.enabled()
@@ -90,6 +97,9 @@ class Client:
         try:
             resp = self._call("POST", settings.ENDPOINT, payload)
         except JevError as e:
+            long = self.long_client() if TOO_LONG.search(str(e)) else None
+            if long is not None:  # the main backend's window was shorter than the estimate allowed for
+                return long.ask(state, questions)
             self._record(None, len(questions), err=e)
             if self.on_call:
                 self.on_call(e)
@@ -101,12 +111,23 @@ class Client:
             cache.put(key, resp)
         return resp
 
+    def long_client(self) -> "Client | None":
+        """The client for the long backend, when one is set and differs from this one."""
+        if self._long is None:
+            target = settings.long_backend()
+            if target is None or target[0] == self.base_url:
+                return None
+            self._long = Client(model=target[1] or None, timeout=self.timeout, retries=self.retries, base_url=target[0],
+                                record=self.record, label=self.label, on_call=self.on_call)
+        return self._long
+
     def models(self) -> dict:
         return self._call("GET", "/v1/models")
 
     def _record(self, resp, n: int, cached: bool = False, err: Exception | None = None) -> None:
         if self.record:
-            ledger.record(ledger.usage_row(self.label, n, self.last_ms, resp, self.last_request_id, self.last_attempts, cached, err))
+            ledger.record(ledger.usage_row(self.label, n, self.last_ms, resp, self.last_request_id, self.last_attempts, cached, err,
+                                           local=settings.is_local(self.base_url)))
 
     def _call(self, method: str, path: str, payload: bytes | None = None) -> dict:
         headers = {"Content-Type": "application/json; charset=utf-8", "Accept": "application/json", "User-Agent": f"jev/{VERSION}"}

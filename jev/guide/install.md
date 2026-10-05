@@ -12,7 +12,10 @@ pipx) installs the same package with a `jev` entry point, minus the skill symlin
 
 The key: `jev auth set <key>`, or `TYPESAFE_API_KEY`, or `--api-key`. The backend: `--model`, the
 `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL` variables, then `jev config set backend
-typesafe|openrouter|ollama|ollaya|von|http://host:port`, then the vendor's host. A local server needs no key. The config file matters because an agent's tool shell, cron and launchd
+typesafe|openrouter|ollama|ollaya|von|http://host:port`, then the vendor's host. A local server needs no key, and
+is never sent the one configured for a hosted backend. `jev config set long_backend ollaya` sends the requests
+over 7,000 characters or 64 questions to a second server (`short_chars` moves the line): a small local model
+such as Ollama's `tev1` keeps the short questions, an encoder such as `laya` takes the long ones. The config file matters because an agent's tool shell, cron and launchd
 start without a profile.
 
 Claude Code: `jev hooks install` and `jev statusline install` write absolute commands into

@@ -292,8 +292,8 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
     reads = [r for r in rows if reads_for_agent(r.get("cmd"))]
     tokens = sum(size(r) for r in rows)
     read_tokens = sum(size(r) for r in reads)
-    paid = settings.cost_usd(sum(r.get("in", 0) for r in rows))
-    paid_reads = settings.cost_usd(sum(r.get("in", 0) for r in reads))
+    paid = settings.price_usd(sum(r.get("in", 0) for r in rows if not r.get("local")))
+    paid_reads = settings.price_usd(sum(r.get("in", 0) for r in reads if not r.get("local")))
     kept_out = read_tokens + trimmed
     explicit = settings.config().get("agent_price_per_mtok_in")
     flat = float(explicit) if explicit else None
