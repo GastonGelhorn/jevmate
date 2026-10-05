@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.4
+
+The compactions stay on the line above the prompt when it is narrow, as when the pane is docked
+beside the transcript: their count now comes ahead of the safety figures. The failure reads in two
+words (`no credit`, `key rejected`, `unreachable`), so it no longer pushes the saving off the line;
+the pane keeps the API's own words. On the desktop the line fits a fifth more text, as its
+proportional font does.
+
 ## 1.6.3
 
 The line above the prompt says when Jev cannot judge, with the reason, until a hook gets an answer
