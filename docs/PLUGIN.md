@@ -105,10 +105,11 @@ terminal CLI). It calls the local
   of the session's cost (Claude Code's own figure when it reports one), what was trimmed, how often
   the guard asked and the context in use, colored with the theme's own keys (`claude`, `success`,
   `warning`, `error`, `suggestion`) so it follows light and dark themes. While Jev cannot judge, it
-  leads with that and the reason (`Jev can't judge · HTTP 402: Insufficient credits`), folded too,
-  until a hook gets an answer again; compactions count with the results they saved, so a session in
-  which Jev never answered still shows them. On a narrow screen the least useful numbers go first;
-  the failure and the saving always stay. Refreshed after each Bash command and each turn,
+  leads with that in two words (`Jev can't judge · no credit`), folded too, until a hook gets an
+  answer again; the pane gives the API's own words. Compactions count ahead of the safety figures,
+  and a session in which Jev never answered still shows them. On a narrow screen the least useful
+  numbers go first (how many results the compactions saved before their count); the failure and the
+  saving always stay. On the desktop, whose font is proportional, the line fits a fifth more. Refreshed after each Bash command and each turn,
   one refresh at a time. `details` and `/jevmate` open the session table in a pane, with a meter for
   the share and buttons to fold the line, refresh and close. `hide` folds the line to a chip with the
   saving and a `show` button; `/jevmate hide` and `/jevmate show` do the same from the prompt. The
