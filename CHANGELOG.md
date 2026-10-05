@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.3
+
+The setup skill offers the local model, Ollama's tev1 with no key, next to the API keys, and the jev
+skill gives the figures there too: free, about a second a check, 2 s a question in larger calls, so
+a sift should get a narrowed list. PLUGIN.md says what the list and index.md hold after a compaction.
+
 ## 1.9.2
 
 The desktop app runs Claude Code through the SDK: a session starts there with no surface and nobody
