@@ -219,3 +219,10 @@ Ollama reads the whole request again for each question: a sift of 59 files in th
 962,722 input tokens, one question per request 65,724. The pace stays near 2 s a question (that sift
 took 143 s; sixteen questions took 25 s in one request and 19 s four at a time), so short checks
 fit a hook's time and hundreds of items do not: a call that could not finish in its time is skipped.
+
+Compaction with tev1, on a long coding session: 81 tool results over 1,500 characters, none settled
+by a rule (the files were changed by scripts, which the rules do not read as edits), took 190 s to
+judge in full, more than the 120 s Claude Code gives the PreCompact hook. On twelve results with a
+known answer it ranked the needed ones above the stale ones (AUC 0.88), but in a narrow range: the
+needed at 0.42 to 0.72, the stale at 0.22 to 0.47, so at Jev's 0.65 bar it kept one of the four. Hence
+its own bars (0.48, 0.30), and only the newest 20 judged on a local model: 45 s.
