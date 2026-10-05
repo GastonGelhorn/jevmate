@@ -43,6 +43,7 @@ type World = {
   judge?: object
   route?: object
   delegate?: object
+  shift?: object
   summary?: object
   usage?: object
   compact?: object
@@ -55,7 +56,7 @@ const fresh = (entries: Record<string, unknown> = {}): World => ({ calls: [], st
 
 // Everything beneath the plugin: the engine's answers to what the mod calls, and the events it passes on.
 function world(on: On, w: World) {
-  mock.clock(on, { now: Date.UTC(2026, 9, 2, 9, 30) })
+  const clock = mock.clock(on, { now: Date.UTC(2026, 9, 2, 9, 30) })
   mock.env(on, { HOME: '/home/someone', PATH: '/usr/bin:/bin' })
   on('store.get', (_$, e) => ({ value: w.store.get(e.key) }))
   on('store.set', (_$, e) => {
@@ -83,6 +84,7 @@ function world(on: On, w: World) {
     if (e.argv.includes('route')) return { value: ok(JSON.stringify(w.route ?? { routine: false, name: 'hard reasoning', conf: 0.9, level: 3 })) }
     if (e.argv.includes('delegate')) return { value: ok(JSON.stringify(w.delegate ?? { reading: 0.2 })) }
     if (e.argv.includes('record')) return { value: ok('') }
+    if (e.argv.includes('shift')) return { value: ok(JSON.stringify(w.shift ?? { p: 0.1 })) }
     if (e.argv.includes('compact')) return { value: ok(JSON.stringify(w.compact ?? { changes: [] })) }
     return { value: ok(JSON.stringify(w.summary ?? SUMMARY)) }
   })
@@ -96,6 +98,7 @@ function world(on: On, w: World) {
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '3 passed', stderr: '', interrupted: false } }))
+  return clock
 }
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 200, scroll: { offset: 0, bodyRows: 1 }, view: {} }
@@ -612,5 +615,150 @@ describe('compaction', () => {
     await start($)
     await $.tool.call({ tool: 'Read', file_path: '/home/someone/.config/jev/compacted/session-abcdef12-1/001-Bash.txt' } as never)
     expect(w.stdins.some(x => x.includes('"hook":"compact-reread"'))).toBe(true)
+  })
+})
+
+describe('compactions jev starts itself (compact_mode auto), in the background', () => {
+  const BIG_CONTEXT = { startedAt: 0, context: { window: 1000000, tokens: 300000, percent: 30 }, rateLimits: [], cost: { usd: 20.0 } }
+  const SMALL_CONTEXT = { ...BIG_CONTEXT, context: { window: 1000000, tokens: 60000, percent: 6 } }
+  const SUMMARY_MSG = { role: 'user', text: 'what happened so far', toolUses: [] }
+  const ANSWER = 'Fixed: the retry now backs off.'
+  const step = (turnId: string) =>
+    ({ turnId, index: 0, answer: ANSWER, toolUses: [], stopReason: 'end_turn', usage: { model: 'claude-opus-5-5', input_tokens: 50, output_tokens: 200, cache_read_input_tokens: 290000, cache_creation_input_tokens: 0 } }) as never
+  type Seen = { trigger?: string; instructions?: string }
+
+  async function turn($: any, turnId: string, prompt: string) {
+    await $.prompt.submit({ text: prompt })
+    await $.turn.start({ text: prompt, turnId })
+    for await (const _chunk of $.turn.step({ turnId, index: 0, model: 'claude-opus-5-5', messageCount: 3 })) {
+      // drain
+    }
+    await $.turn.complete({ answer: ANSWER, durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+  }
+
+  function core(on: On, seen: Seen[]) {
+    on('turn.step', async function* (_$, e) {
+      return step(e.turnId)
+    })
+    on('session.compact', (_$, e) => {
+      seen.push({ trigger: e.trigger, instructions: e.instructions })
+      return { messages: [SUMMARY_MSG], tokensBefore: 300000, tokensAfter: 30000, usage: { input_tokens: 2000, output_tokens: 6000, cache_read_input_tokens: 290000, cache_creation_input_tokens: 0 } }
+    })
+  }
+
+  const start = ($: any) => $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+
+  test('idle long enough, it compacts before the prompt cache expires', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await clock.advance(54 * 60_000)
+    expect(seen).toEqual([])
+    await clock.advance(2 * 60_000)
+    expect(seen.length).toBe(1)
+    const row = w.stdins.find(x => x.includes('"hook":"compact-auto"')) ?? ''
+    expect(row).toContain('"reason":"idle"')
+    expect(row).toContain('"before":300000')
+    expect(row).toContain('"after":30000')
+    expect(row).toContain('"ttl_min":60')
+    expect(row).toContain(`"last_at":${Date.UTC(2026, 9, 2, 9, 30)}`)
+  })
+
+  test('a prompt before then stops the timer', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await clock.advance(30 * 60_000)
+    await $.prompt.submit({ text: 'and the dead-letter path, does it back off too?' })
+    await clock.advance(40 * 60_000)
+    expect(seen).toEqual([])
+  })
+
+  test('after a turn whose prompt started other work, it compacts with what that work needs', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT, shift: { p: 0.92 } }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await clock.advance(2_000)
+    expect(w.calls.some(a => a.includes('shift'))).toBe(false)
+    await turn($, 't2', 'now build the csv export of the invoices for the billing page')
+    expect(seen).toEqual([])
+    await clock.advance(2_000)
+    expect(seen.length).toBe(1)
+    expect(seen[0].instructions).toContain('csv export of the invoices')
+    const asked = w.stdins.find(x => x.includes('"asked"')) ?? ''
+    expect(asked).toContain('fix the retry bug in the outbox')
+    expect(asked).toContain(ANSWER)
+    const row = w.stdins.find(x => x.includes('"hook":"compact-auto"')) ?? ''
+    expect(row).toContain('"reason":"shift"')
+    expect(row).toContain('"p":0.92')
+  })
+
+  test('nothing on a small context', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: SMALL_CONTEXT, shift: { p: 0.99 } }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await turn($, 't2', 'now build the csv export of the invoices for the billing page')
+    await clock.advance(70 * 60_000)
+    expect(seen).toEqual([])
+    expect(w.calls.some(a => a.includes('shift'))).toBe(false)
+  })
+
+  test('nothing with compact_mode on', { options: { compact_mode: 'on' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT, shift: { p: 0.99 } }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await turn($, 't2', 'now build the csv export of the invoices for the billing page')
+    await clock.advance(70 * 60_000)
+    expect(seen).toEqual([])
+  })
+
+  test('the same session after a restart keeps its timer', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh({ last_request: { session: 'abcdef12-0000-0000', at: Date.UTC(2026, 9, 2, 8, 40) } }), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await clock.advance(6 * 60_000)
+    expect(seen.length).toBe(1)
+  })
+
+  test('and lets it go once the cache has expired', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh({ last_request: { session: 'abcdef12-0000-0000', at: Date.UTC(2026, 9, 2, 8, 0) } }), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    const seen: Seen[] = []
+    core(on, seen)
+    await start($)
+    await clock.advance(10 * 60_000)
+    expect(seen).toEqual([])
+  })
+
+  test('the line and the pane say what they saved', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const compact = { runs: 2, judged: 144, moved: 2, cut: 0, kept: 142, freed: 6186, restored: 4996, rereads: 0, pruned: 0, saved_usd: 0,
+                      auto: { runs: 1, idle: 1, shift: 0, requests: 3, saved_usd: 0.4 } }
+    world(on, { ...fresh(), summary: { ...SUMMARY, jev: { ...JEV, compact } } })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('2 compactions (1 by jev, ~$0.40)')
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    const line = (await pane.find({ text: /^\s*compaction/ }))?.text ?? ''
+    expect(line).toContain('auto')
+    expect(line).toContain('1 started by jev (1 while idle): ~$0.40 saved over 3 requests since')
   })
 })

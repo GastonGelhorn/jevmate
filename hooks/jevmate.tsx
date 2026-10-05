@@ -11,7 +11,7 @@
 //
 // Needs Claude Code 2.1.287 or later; older versions ignore `modules` and keep the hooks alone.
 
-import type { EngineInterface, Register, SessionMessage, ToolResultSummary, ToolUseSummary } from 'claude-code'
+import type { EngineInterface, Register, SessionCompactResult, SessionMessage, ToolResultSummary, ToolUseSummary } from 'claude-code'
 
 type Api = EngineInterface
 // The element constructors a surface draws with ($.ui.resolve), passed to the drawing helpers.
@@ -44,9 +44,26 @@ const MONEY_FLOOR = 0.5 // below it the band leads with what jev caught, not wit
 const DELEGATE_BAR = 0.85 // how sure jev must be that a subagent's task is reading
 const PROBE_CTX = 100_000 // until the cache check has run, effort is only lowered on a context this small
 const CACHE_TTL_MS = 240_000 // a step later than this after the previous one may have lost the cache by age
+const AUTO_MIN = 200_000 // compact_mode auto: below this a context costs less to carry than a summary costs to write
+const CACHE_LIFE_MS = 60 * 60_000 // the longest prompt cache lifetime: a request after this long writes the whole context again
+const AUTO_IDLE_MS = 55 * 60_000 // idle this long, jev compacts while the cache still holds the conversation
+const SHIFT_BAR = 0.85 // how sure jev must be that a prompt leaves the earlier work behind
 
 type Safety = { asked: number; pages_flagged: number; files_flagged: number; triaged: number; claims: number; checks: number }
-type Compaction = { runs: number; judged: number; moved: number; cut: number; kept: number; freed: number; restored: number; rereads: number; pruned: number; saved_usd: number }
+type Compaction = {
+  runs: number
+  judged: number
+  moved: number
+  cut: number
+  kept: number
+  freed: number
+  restored: number
+  rereads: number
+  pruned: number
+  saved_usd: number
+  // the ones this module started itself (compact_mode auto), and what they saved so far, net of the summary's cost
+  auto?: { runs: number; idle: number; shift: number; requests: number; saved_usd: number }
+}
 // What `jev compact --messages` hands back for a result it moves or cuts, or a file write it shortens.
 type Change = { id: string; kind: 'result' | 'input'; text?: string; input?: Record<string, unknown> }
 type Routing = { subagents: number; subagent_saved: number; subagent_spent: number; effort_turns: number; effort_cache: 'keeps' | 'rewrites' | null }
@@ -126,6 +143,13 @@ let effortCache: 'keeps' | 'rewrites' | null = null
 let compactCache: 'pays' | 'costs' | null = null
 let lastStep = { ctx: 0, at: 0 }
 let prevLow = false
+let lastAt = 0 // the main thread's last request, kept across a restart of the same session
+let recentPrompts: string[] = [] // the person's prompts before the current one, for the shift question
+let lastAnswer = ''
+let autoMin = AUTO_MIN
+let autoIdleMs = AUTO_IDLE_MS
+let idleTimer: { cancel: () => void } | null = null
+let compactingNow = false
 const routeFor = new Map<string, Route>()
 const lowTurns = new Set<string>() // turns running at low effort, decided at their first request
 const routedAgents = new Map<string, Routed>()
@@ -139,6 +163,12 @@ const money = (x: number) => (x >= 100 ? `$${Math.round(x).toLocaleString('en-US
 const pct = (x: number) => `${Math.round(100 * Math.min(1, Math.max(0, x)))}%`
 const length = (pieces: Piece[]) => pieces.reduce((sum, p) => sum + p.text.length, 0)
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
+const autoLine = (au: Compaction['auto']) => {
+  if (!au?.runs) return ''
+  const why = [au.idle ? `${au.idle} while idle` : '', au.shift ? `${au.shift} as other work began` : ''].filter(Boolean).join(', ')
+  const net = au.saved_usd >= 0 ? `~${money(au.saved_usd)} saved` : `${money(-au.saved_usd)} spent so far`
+  return ` · ${au.runs} started by jev (${why}): ${net} over ${plural(au.requests, 'request')} since`
+}
 const clock = (epochSeconds: number) => {
   const d = new Date(epochSeconds * 1000)
   return `${two(d.getHours())}:${two(d.getMinutes())}`
@@ -352,7 +382,15 @@ function segments(): Segment[] {
     caught(j).forEach((pieces, i) => out.push({ key: `caught${i}`, rank: 7 - i, pieces }))
     if (j.compact?.runs) {
       // The count stays ahead of the safety figures; how many results it saved is the first detail to go.
-      out.push({ key: 'compact', rank: 7.5, pieces: [{ text: plural(j.compact.runs, 'compaction'), color: INFO }] })
+      const au = j.compact.auto
+      out.push({
+        key: 'compact',
+        rank: 7.5,
+        pieces: [
+          { text: plural(j.compact.runs, 'compaction'), color: INFO },
+          ...(au?.runs ? [{ text: ` (${au.runs} by jev, ${au.saved_usd >= 0 ? `~${money(au.saved_usd)}` : `-${money(-au.saved_usd)} so far`})`, dim: true } as Piece] : []),
+        ],
+      })
       if (j.compact.judged) {
         out.push({ key: 'compact-saved', rank: 3, pieces: [{ text: `${n(j.compact.judged)} ${j.compact.judged === 1 ? 'result' : 'results'} saved`, dim: true }] })
       }
@@ -414,6 +452,89 @@ async function reading($: Api, prompt: string, kind: string): Promise<number | n
   } catch {
     return null
   }
+}
+
+async function shift($: Api, prompt: string): Promise<number | null> {
+  const payload = { prompt, asked: recentPrompts, answered: lastAnswer, session_id: sessionId, judge: true }
+  const r = await jev($, ['hook', 'shift'], JSON.stringify(payload), 8_000)
+  const last = lastLine(r?.stdout)
+  if (!r || r.exitCode !== 0 || !last) return null
+  try {
+    const p = (JSON.parse(last) as { p: number | null }).p
+    return typeof p === 'number' ? p : null
+  } catch {
+    return null
+  }
+}
+
+// compact_mode auto: compactions jev starts itself, in the background, so nobody waits for them. Idle long enough,
+// it compacts while the prompt cache still holds the conversation: the summary reads it at the cache's price, and the
+// first request after the break writes a small context instead of the whole one. After a turn whose prompt started
+// other work, it compacts while the answer is read: the details of the last work are no longer needed.
+async function backgroundCompact($: Api, reason: 'idle' | 'shift'): Promise<void> {
+  if (compactingNow || cfg.compactMode !== 'auto' || !canAsk) return
+  compactingNow = true
+  try {
+    const tokens = (await $.session.usage()).context.tokens ?? 0
+    if (tokens < autoMin) return
+    const now = await $.clock.now()
+    let p: number | null = null
+    let instructions: string | undefined
+    if (reason === 'idle') {
+      // Woken late (a sleeping machine): the cache has gone, so a summary would read the whole context at full price.
+      if (lastAt <= 0 || now - lastAt >= CACHE_LIFE_MS) return
+    } else {
+      if (!recentPrompts.length || lastPrompt.length < 20 || /^(\/|\[Image:|@"|@\/)/.test(lastPrompt)) return
+      p = await shift($, lastPrompt)
+      if (p === null || p < SHIFT_BAR) return
+      instructions = `The person has moved on to other work: ${lastPrompt.slice(0, 500)}. Keep what that work needs; the earlier work can be brief.`
+    }
+    const last = lastAt
+    $.ui.log(
+      reason === 'idle'
+        ? `jev compact: compacting in the background: ${k(tokens)} tokens in context and ${Math.round((now - last) / 60_000)} min without a request, before the prompt cache expires`
+        : `jev compact: compacting in the background: the last prompt started other work (p=${(p ?? 0).toFixed(2)}) and ${k(tokens)} tokens of the earlier work are in context`,
+    )
+    let result: SessionCompactResult
+    try {
+      result = await $.session.compact(instructions ? { instructions } : {})
+    } catch {
+      return // a turn started meanwhile: the next chance comes after it
+    }
+    if ('skip' in result) return
+    const u = result.usage
+    const before = result.tokensBefore ?? tokens
+    await note($, 'compact-auto', {
+      reason,
+      before,
+      after: result.tokensAfter ?? 0,
+      last_at: last,
+      ttl_min: Math.round(CACHE_LIFE_MS / 60_000),
+      ...(p !== null ? { p } : {}),
+      model: summary?.model?.last_model || '',
+      ...(u
+        ? { usage: { input_tokens: u.input_tokens, output_tokens: u.output_tokens, cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens } }
+        : {}),
+    })
+    if (result.tokensAfter) $.ui.log(`jev compact: the context went from ${k(before)} to ${k(result.tokensAfter)} tokens`)
+    recentPrompts = []
+    lastAnswer = ''
+    void refresh($)
+  } catch {
+    // the session ended or the module reloaded mid-way: nothing to do
+  } finally {
+    compactingNow = false
+  }
+}
+
+// The idle compaction's timer: from the main thread's last request, re-armed after each turn and stopped by a prompt.
+async function armIdle($: Api) {
+  idleTimer?.cancel()
+  idleTimer = null
+  if (cfg.compactMode !== 'auto' || lastAt <= 0) return
+  const wait = lastAt + autoIdleMs - (await $.clock.now())
+  if (wait < -(CACHE_LIFE_MS - autoIdleMs)) return // the cache has gone already
+  idleTimer = $.clock.after(Math.max(1_000, wait), () => void backgroundCompact($, 'idle'))
 }
 
 // Effort is lowered only where it costs nothing: once the check below showed that this Claude Code build
@@ -543,7 +664,7 @@ export const register: Register = (on, options) => {
     routeConf: Number(opt('route_conf', '0.80')) || 0.8,
     subagentModel: opt('subagent_model', 'off'), // off · sonnet · haiku
     trimMode: opt('trim_mode', 'on'),
-    compactMode: opt('compact_mode', 'off'), // off · on
+    compactMode: opt('compact_mode', 'off'), // off · on · auto (on, plus compactions this module starts)
   }
   // The plugin's options reach the jev process the way Claude Code hands them to a hook command.
   optionEnv = {}
@@ -568,6 +689,13 @@ export const register: Register = (on, options) => {
   compactCache = null
   lastStep = { ctx: 0, at: 0 }
   prevLow = false
+  lastAt = 0
+  recentPrompts = []
+  lastAnswer = ''
+  autoMin = AUTO_MIN
+  autoIdleMs = AUTO_IDLE_MS
+  idleTimer = null
+  compactingNow = false
   routeFor.clear()
   lowTurns.clear()
   routedAgents.clear()
@@ -590,6 +718,12 @@ export const register: Register = (on, options) => {
     } catch {
       version = ''
     }
+    if (cfg.compactMode === 'auto') {
+      const min = Number(await $.env.get('JEV_AUTO_COMPACT_MIN'))
+      const idle = Number(await $.env.get('JEV_AUTO_COMPACT_IDLE'))
+      if (min > 0) autoMin = min
+      if (idle > 0) autoIdleMs = Math.min(idle * 60_000, CACHE_LIFE_MS - 60_000)
+    }
     try {
       // An earlier build hid the line for good, with no way back: whoever pressed that gets it back, open.
       if ((await $.store.get('band_hidden')) !== undefined) await $.store.delete('band_hidden')
@@ -598,6 +732,9 @@ export const register: Register = (on, options) => {
       effortCache = seen && seen.version === version && seen.verdict ? seen.verdict : null
       const cost = (await $.store.get('compact_cache')) as { version?: string; verdict?: 'pays' | 'costs' } | undefined
       compactCache = cost && cost.version === version && cost.verdict ? cost.verdict : null
+      const last = (await $.store.get('last_request')) as { session?: string; at?: number } | undefined
+      lastAt = last && last.session === sessionId && typeof last.at === 'number' ? last.at : 0
+      if (lastAt) await armIdle($)
     } catch {
       collapsed = false
     }
@@ -759,7 +896,7 @@ export const register: Register = (on, options) => {
     const trimOn = cfg.trimMode !== 'off'
     const subagentOn = cfg.subagentModel === 'sonnet' || cfg.subagentModel === 'haiku'
     const effortOn = cfg.routeMode === 'effort'
-    const compactOn = cfg.compactMode === 'on'
+    const compactOn = cfg.compactMode === 'on' || cfg.compactMode === 'auto'
     const co = j.compact
     const models = sub ? Object.entries(sub.models).map(([m, count]) => `${count} on ${shortModel(m)}`).join(', ') : ''
     const down = failing(j)
@@ -819,15 +956,17 @@ export const register: Register = (on, options) => {
           },
         ])}
         {row('  compaction', [
-          { text: compactOn ? 'on' : 'off', bold: true, ...(compactOn ? { color: GOOD } : {}) },
+          { text: compactOn ? cfg.compactMode : 'off', bold: true, ...(compactOn ? { color: GOOD } : {}) },
           co && co.runs
             ? {
-                text: ` · ${plural(co.runs, 'compaction')} judged · ${plural(co.moved, 'result')} moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}`,
+                text: ` · ${plural(co.runs, 'compaction')} judged · ${plural(co.moved, 'result')} moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}${autoLine(co.auto)}`,
                 dim: true,
               }
             : {
                 text: compactOn
-                  ? compactCache === 'pays'
+                  ? cfg.compactMode === 'auto'
+                    ? ` · compacts in the background above ${k(autoMin)} tokens of context: after ${Math.round(autoIdleMs / 60_000)} min idle, before the prompt cache expires, or once a prompt has started other work`
+                    : compactCache === 'pays'
                     ? ' · at the next compaction the summarizer reads the conversation with stale results moved out'
                     : ' · at the next compaction, large results are judged and saved, and what the work needs comes back after the summary'
                   : ' · Claude Code summarizes on its own',
@@ -916,7 +1055,13 @@ export const register: Register = (on, options) => {
     }
     routeFor.delete(e.turnId)
     lowTurns.delete(e.turnId)
+    lastAnswer = e.answer.slice(0, 1500)
+    if (lastAt) $.store.set('last_request', { session: sessionId, at: lastAt }).catch(() => undefined)
     if (e.isAborted) return result
+    if (cfg.compactMode === 'auto') {
+      void armIdle($)
+      $.clock.after(1_000, () => void backgroundCompact($, 'shift'))
+    }
     void refresh($)
     if (cfg.evidenceLine !== 'off' && e.answer.length >= 40 && CLAIM.test(e.answer) && !turnCommands.some(c => RUNNER.test(c))) {
       await note($, 'evidence')
@@ -928,10 +1073,13 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if ((e.origin?.kind ?? 'composer') !== 'composer') return next(e) // only what the person typed
     const text = e.text.trim()
+    if (lastPrompt && !lastPrompt.startsWith('/')) recentPrompts = [...recentPrompts, lastPrompt].slice(-3) // what the work was, for the shift question
     lastPrompt = text.slice(0, 2000)
     if (cfg.routeMode === 'effort' && effortCache !== 'rewrites' && text.length >= 40 && !/^(\/|\[Image:|@"|@\/)/.test(text)) {
       pendingRoute = await rate($, text)
     }
+    idleTimer?.cancel()
+    idleTimer = null
     return next(e)
   })
 
@@ -954,7 +1102,10 @@ export const register: Register = (on, options) => {
       }
       prevLow = low
     }
-    if (u) lastStep = { ctx: u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens, at: now }
+    if (u) {
+      lastStep = { ctx: u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens, at: now }
+      lastAt = now
+    }
     return result
   })
 
@@ -964,7 +1115,7 @@ export const register: Register = (on, options) => {
   // block after the compaction repeats what the work still needs. This adds one step once it has measured that it
   // pays: the summarizer reads the conversation with the stale results already moved out.
   on('session.compact', async ($, e, next) => {
-    if (cfg.compactMode !== 'on' || e.agentId) return next(e)
+    if ((cfg.compactMode !== 'on' && cfg.compactMode !== 'auto') || e.agentId) return next(e)
     if (compactCache !== 'pays') {
       if (e.trigger === 'precompute') return next(e)
       const result = await next(e)
