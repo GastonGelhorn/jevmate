@@ -23,6 +23,21 @@
         "hooks",
         "mcp"
       ]
+    },
+    {
+      "name": "context-kernel",
+      "source": {
+        "source": "github",
+        "repo": "GastonGelhorn/context-kernel"
+      },
+      "description": "Memory for coding agents that you keep up to date by talking. It remembers what you tell it, notices when you change your mind, and warns the agent when an earlier recommendation relied on something that changed. Local SQLite, judged by jev (install jevmate too).",
+      "category": "productivity",
+      "tags": [
+        "memory",
+        "context",
+        "hooks",
+        "mcp"
+      ]
     }
   ]
 }
