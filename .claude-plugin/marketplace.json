@@ -30,7 +30,7 @@
         "source": "github",
         "repo": "GastonGelhorn/context-kernel"
       },
-      "description": "Memory for coding agents that you keep up to date by talking. It remembers what you tell it, notices when you change your mind, and warns the agent when an earlier recommendation relied on something that changed. Local SQLite, judged by jev (install jevmate too).",
+      "description": "Durable context for coding agents that tracks when earlier advice goes stale. It keeps what you tell the agent and what your decision records say, notices when you change your mind, and flags a recommendation for review when a fact it rested on changes. Local SQLite, judged by jev on a local model (install jevmate too).",
       "category": "productivity",
       "tags": [
         "memory",
