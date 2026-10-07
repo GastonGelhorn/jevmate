@@ -25,12 +25,12 @@
       ]
     },
     {
-      "name": "context-kernel",
+      "name": "shelflife-context",
       "source": {
         "source": "github",
-        "repo": "GastonGelhorn/context-kernel"
+        "repo": "GastonGelhorn/shelflife-context"
       },
-      "description": "Durable context for coding agents that tracks when earlier advice goes stale. It keeps what you tell the agent and what your decision records say, notices when you change your mind, and flags a recommendation for review when a fact it rested on changes. Local SQLite, judged by jev on a local model (install jevmate too).",
+      "description": "Shelflife: durable context for coding agents that knows when it has gone stale. It keeps what you tell the agent and what your decision records say, notices when you change your mind or finish something, flags a recommendation for review when a fact it rested on changes, and reaches agents without hooks through AGENTS.md. Local SQLite, judged by jev on a local model (install jevmate too).",
       "category": "productivity",
       "tags": [
         "memory",

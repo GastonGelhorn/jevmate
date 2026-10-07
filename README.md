@@ -223,15 +223,15 @@ The mod itself sends nothing: it runs the local `jev` command, which reads the l
 session's transcript on disk. Every part has an off switch in the plugin's settings.
 [SECURITY.md](SECURITY.md) has the rest.
 
-## Memory across sessions: Context Kernel
+## Memory across sessions: Shelflife
 
-jevmate decides within a session; it doesn't remember between them. [Context Kernel](https://github.com/GastonGelhorn/context-kernel), listed in the same marketplace, is the memory: it keeps what you told the agent and what your repository's decision records say. When a fact changes, it tells the agent that an earlier recommendation needs another look. It uses `jev` for its small judgments (is this worth keeping, is it relevant, did that advice rest on it), so it needs jev but not this plugin.
+jevmate decides within a session; it doesn't remember between them. [Shelflife](https://github.com/GastonGelhorn/shelflife-context), listed in the same marketplace, is the memory: it keeps what you told the agent and what your repository's decision records say. When a fact changes, it tells the agent that an earlier recommendation needs another look. It uses `jev` for its small judgments (is this worth keeping, is it relevant, did that advice rest on it), so it needs jev but not this plugin.
 
 ```bash
-claude plugin install context-kernel@gastongelhorn
+claude plugin install shelflife-context@gastongelhorn
 ```
 
-On the same continuity script over three runs, with no plugin, jevmate alone, the kernel alone and both, the user explained a fact again 8, 9, 3 and 0 times out of 9. Stale recommendations went unflagged 3, 3, 2 and 0 times out of 6. The kernel with jev also cost about 5 s and 28% more per session. jevmate alone changed nothing on that script; its gains are in the tasks above. The [kernel's verification](https://github.com/GastonGelhorn/context-kernel/blob/main/docs/verification.md) has the details.
+On the same continuity script over three runs, with no plugin, jevmate alone, the kernel alone and both, the user explained a fact again 8, 9, 3 and 0 times out of 9. Stale recommendations went unflagged 3, 3, 2 and 0 times out of 6. The kernel with jev also cost about 5 s and 28% more per session. jevmate alone changed nothing on that script; its gains are in the tasks above. [Shelflife's verification](https://github.com/GastonGelhorn/shelflife-context/blob/main/docs/verification.md) has the details.
 
 ## Advanced and experimental
 
