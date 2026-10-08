@@ -33,7 +33,7 @@
     "backend": {
       "type": "string",
       "title": "Backend",
-      "description": "typesafe or openrouter. Empty: detected from the key (sk-or- means OpenRouter), else TypeSafe.",
+      "description": "typesafe, openrouter or ollama (on this machine, no key). Empty: detected from the key (sk-or- means OpenRouter), else TypeSafe. For an Ollama on another machine, /jevmate:setup (or jev setup) sets its address.",
       "default": ""
     },
     "guard_mode": {

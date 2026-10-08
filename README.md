@@ -16,7 +16,8 @@ claude plugin install jevmate@gastongelhorn
 ```
 
 That brings the skill, the slash commands, the hooks, the MCP tools and `jev` on the PATH of the
-Bash tool. You will be asked for a key (TypeSafe or OpenRouter) and a backend; both can wait.
+Bash tool. You will be asked for a key (TypeSafe or OpenRouter) and a backend; both can wait, and
+`/jevmate:setup` also offers Ollama with no key, on this machine or on another one you reach.
 
 As a Codex plugin, from the same repo (more under [In Codex](#in-codex)):
 
@@ -28,9 +29,11 @@ As a plain CLI, for Codex, OpenCode, scripts or cron:
 
 ```bash
 git clone https://github.com/GastonGelhorn/jevmate && cd jevmate && ./install.sh
-jev auth set <key>      # an sk-or- key configures OpenRouter by itself
-jev doctor
 ```
+
+`install.sh` ends by asking where the judge runs (`jev setup`): Ollama on this machine, Ollama on
+another one you reach (a Mac on your Tailscale network), or a key for TypeSafe or OpenRouter. It
+checks the answer with one real decision; `jev setup` asks again any time.
 
 `pip install .` works too. Python 3.10 or newer, standard library only.
 
@@ -192,6 +195,11 @@ ollama pull tev1
 printf 'FROM tev1\nPARAMETER num_ctx 32768\n' > tev1-32k.Modelfile && ollama create tev1-32k -f tev1-32k.Modelfile
 jev config set backend ollama && jev config set model tev1-32k
 ```
+
+`jev setup --judge local` does all of that and checks it. `jev setup --judge remote --url HOST`
+points at an Ollama on another machine, such as a Mac with more memory on your Tailscale network,
+and marks it so it gets the same limits. That machine has to listen beyond itself
+(`OLLAMA_HOST=0.0.0.0`), and Ollama has no password, so do that only on a private network.
 
 jev sends it one question per request, four at a time, and skips a call that could not finish in
 its time. The guard's checks take about a second; a sift or a compaction over hundreds of items is

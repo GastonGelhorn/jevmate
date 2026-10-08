@@ -185,7 +185,14 @@ def is_local(url: str) -> bool:
 def backend_name() -> str:
     url = base_url()
     known = next((k for k, (u, _) in BACKENDS.items() if u.rstrip("/") == url.rstrip("/")), None)
-    return known or ("local" if is_local(url) else "custom")
+    if known:
+        return known
+    # An Ollama on another machine (`jev setup` marks it) gets Ollama's limits too: one question per
+    # request, four at a time, bodies under 64 KiB. The mark only holds for the URL it was set with.
+    cfg = config()
+    if cfg.get("server") == "ollama" and (cfg.get("base_url") or "").rstrip("/") == url:
+        return "ollama"
+    return "local" if is_local(url) else "custom"
 
 
 def option(key: str, env: str | None = None, default=None):

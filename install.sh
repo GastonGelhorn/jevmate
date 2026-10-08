@@ -2,7 +2,8 @@
 # Installs jev from this checkout WITHOUT the plugin system: the package to ~/.local/share/jev, the launcher
 # to ~/.local/bin/jev, the skill into every agent skills directory that exists. Claude Code users can instead
 # `claude plugin marketplace add GastonGelhorn/jevmate && claude plugin install jevmate@gastongelhorn`, which also wires the hooks. Verifies SHA256SUMS first, so what you
-# audited is what runs (tools/checksums.sh regenerates the file after a change).
+# audited is what runs (tools/checksums.sh regenerates the file after a change). Ends with `jev setup`, where
+# the judge runs, when someone is at the terminal; `--no-setup` skips it.
 set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SRC"
@@ -31,4 +32,12 @@ for d in "$HOME/.claude/skills" "$HOME/.agents/skills" "$HOME/.codex/skills" "$H
 done
 
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "add $BIN to your PATH";; esac
-echo "next       jev auth set <key> · jev doctor · jev hooks install · jev statusline install   (skip hooks/statusline if the plugin is installed)"
+
+# Where the judge runs: asked here when someone is at the terminal (--no-setup or JEV_NO_SETUP=1 skip it).
+if [ "${1:-}" != "--no-setup" ] && [ "${JEV_NO_SETUP:-}" != 1 ] && [ -t 0 ] && [ -t 1 ]; then
+  echo
+  "$BIN/jev" setup || echo "setup did not finish: \`jev setup\` runs it again"
+  echo "next       jev hooks install · jev statusline install   (skip both if the plugin is installed)"
+else
+  echo "next       jev setup (Ollama here or on another machine, or an API key) · jev hooks install · jev statusline install   (skip hooks/statusline if the plugin is installed)"
+fi

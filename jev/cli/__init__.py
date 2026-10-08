@@ -44,7 +44,7 @@ claude code
   jev q list|save|show          saved questions: a phrasing with its measured threshold and band (jev tune --save NAME; --q NAME anywhere)
   jev mcp                       the same decisions as MCP tools (the plugin runs it)
 
-  jev guide [topic]   jev examples [name]   jev usage   jev cost   jev cache   jev config   jev doctor   jev auth
+  jev setup   jev guide [topic]   jev examples [name]   jev usage   jev cost   jev cache   jev config   jev doctor   jev auth
 
 State: -s TEXT | --state-file F | --state-json J | --field k=v (v may be @file) | stdin.
 Single-quote questions that name fields in backticks: 'Does `message` ask for a refund?'
@@ -58,6 +58,7 @@ COMMANDS = {
     "cluster": "debug", "tests": "debug", "diff": "debug", "failures": "debug", "stream": "debug",
     "auth": "admin", "doctor": "admin", "models": "admin", "config": "admin", "cost": "admin", "cache": "admin",
     "schema": "admin", "usage": "admin", "version": "admin",
+    "setup": "setup",
     "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude", "inspect": "claude",
     "q": "library", "mcp": "library",
     "compact": "compact",

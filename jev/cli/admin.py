@@ -28,6 +28,7 @@ CONFIG_KEYS = {
     "cache_ttl_days": ("cache_ttl_days", float, f"days a cached answer stays valid (default {settings.CACHE_TTL_DAYS:g})"),
     "rpm": ("rpm", int, f"requests per minute the client spaces itself to (default {settings.RPM_LIMIT})"),
     "backend": ("backend", str, "typesafe | openrouter | ollama | ollaya | von | a URL of any server that answers /v1/systemone (local ones need no key)"),
+    "server": ("server", str, "ollama: the backend URL is an Ollama on another machine, so it gets Ollama's limits (`jev setup` sets it; changing the backend clears it)"),
     "max_questions": ("max_questions", int, "questions per request; more go in batches (default 1 on Ollama, which reads the whole request again for each; no limit elsewhere)"),
     "parallel": ("parallel", int, "batches in flight at once (default 4 on Ollama, 1 elsewhere)"),
     "local_seconds_per_question": ("local_seconds_per_question", float, f"a local model's time per question; a call that would take longer than its timeout is skipped (default {settings.LOCAL_SECONDS_PER_QUESTION:g})"),
@@ -96,23 +97,48 @@ def register(sub) -> None:
     v.set_defaults(fn=lambda a: print(f"jev {VERSION}") or 0)
 
 
+def store_key(key: str) -> None:
+    settings.HOME.mkdir(parents=True, exist_ok=True)
+    fd = os.open(settings.KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(key.strip() + "\n")
+    os.chmod(settings.KEY_FILE, 0o600)
+    print(f"stored {settings.mask(key)} in {settings.KEY_FILE} (mode 0600)")
+
+
+def use_backend(name: str, url: str | None = None, model: str | None = None, server: str | None = None) -> None:
+    """Point jev at a known backend, or at `url` with `model`. `server` marks what answers there (ollama)."""
+    known_url, known_model = settings.BACKENDS.get(name, (None, None))
+    cfg = dict(settings.config())
+    cfg["base_url"] = (url or known_url).rstrip("/")
+    if model or known_model:
+        cfg["model"] = model or known_model
+    cfg.pop("server", None)
+    if server:
+        cfg["server"] = server
+    settings.save_config(cfg)
+
+
+def roundtrip(c) -> str:
+    """One small real decision: what doctor and setup report as the backend working."""
+    r = c.ask("The export button crashes the settings page in Safari but works in Chrome.",
+              {"is_bug": noul("Does this describe a software bug?"),
+               "severity": score("How severe?", ["Cosmetic", "Degraded, a workaround exists", "Blocking"])})
+    a = r["answers"]
+    via = "cache" if r.get("cached") else f"{c.last_ms:.0f} ms, {r['usage']['input_tokens']} tokens"
+    return f"model={r.get('model')} is_bug={a['is_bug']['noul']:.2f} severity={a['severity']['score']:.2f} ({via})"
+
+
 def cmd_auth(args) -> int:
     if args.action == "set":
         key = args.key or (sys.stdin.readline().strip() if not sys.stdin.isatty() else "")
         if not key:
             raise UsageError("jev auth set <key>  (or pipe the key on stdin)")
-        settings.HOME.mkdir(parents=True, exist_ok=True)
-        fd = os.open(settings.KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(key.strip() + "\n")
-        os.chmod(settings.KEY_FILE, 0o600)
-        print(f"stored {settings.mask(key)} in {settings.KEY_FILE} (mode 0600)")
+        store_key(key)
         backend = args.backend or ("openrouter" if key.startswith("sk-or-") and not settings.config().get("base_url") else None)
         if backend:
+            use_backend(backend)
             url, model = settings.BACKENDS[backend]
-            cfg = dict(settings.config())
-            cfg.update(base_url=url, model=model)
-            settings.save_config(cfg)
             print(f"backend {backend}: {url} · model {model}  (jev config set backend typesafe|openrouter to change)")
         return 0
     if args.action == "clear":
@@ -155,16 +181,7 @@ def cmd_doctor(args) -> int:
     step("backend", lambda: f"{settings.backend_name()} · {base} · model {args.model or settings.default_model()}" + (" · local, no key needed" if settings.is_local(base) else ""))
     c = client_for(args, "doctor", record=False)
     step("GET /v1/models", lambda: f"{[m.get('name') for m in c.models().get('models', [])]} in {c.last_ms:.0f} ms", optional=True)
-
-    def roundtrip():
-        r = c.ask("The export button crashes the settings page in Safari but works in Chrome.",
-                  {"is_bug": noul("Does this describe a software bug?"),
-                   "severity": score("How severe?", ["Cosmetic", "Degraded, a workaround exists", "Blocking"])})
-        a = r["answers"]
-        via = "cache" if r.get("cached") else f"{c.last_ms:.0f} ms, {r['usage']['input_tokens']} tokens"
-        return f"model={r.get('model')} is_bug={a['is_bug']['noul']:.2f} severity={a['severity']['score']:.2f} ({via})"
-
-    step(f"POST {settings.ENDPOINT}", roundtrip)
+    step(f"POST {settings.ENDPOINT}", lambda: roundtrip(c))
     step("ledger", lambda: f"{settings.USAGE_FILE} ({settings.USAGE_FILE.stat().st_size if settings.USAGE_FILE.exists() else 0:,} bytes)")
     st = cache.stats()
     step("cache", lambda: f"{'on' if st['enabled'] else 'off'} · {st['entries']} entries · {st['bytes'] / 1024:.0f} KiB · {settings.CACHE_DIR}")
@@ -206,24 +223,24 @@ def cmd_config(args) -> int:
         raise UsageError(f"jev config {args.action} <{'|'.join(CONFIG_KEYS)}>" + (" <value>" if args.action == "set" else ""))
     if args.key == "backend":
         if args.action == "unset":
-            cfg.pop("base_url", None)
-            cfg.pop("model", None)
+            for k in ("base_url", "model", "server"):
+                cfg.pop(k, None)
             settings.save_config(cfg)
             print("backend reset to the vendor's host")
             return 0
         if args.value in settings.BACKENDS:
+            use_backend(args.value)
             url, model = settings.BACKENDS[args.value]
-            cfg.update(base_url=url, model=model)
-            settings.save_config(cfg)
             print(f"backend {args.value}: {url} · model {model}" + ("  (local: no key needed)" if settings.is_local(url) else ""))
             return 0
         if args.value.startswith(("http://", "https://")):
-            cfg["base_url"] = args.value.rstrip("/")
-            settings.save_config(cfg)
-            print(f"backend {settings.backend_name()}: {cfg['base_url']} · model {settings.default_model()}  (jev config set model … if the server names it differently"
-                  + ("; no key needed)" if settings.is_local(cfg["base_url"]) else ")"))
+            use_backend("", args.value)
+            print(f"backend {settings.backend_name()}: {settings.config()['base_url']} · model {settings.default_model()}  (jev config set model … if the server names it differently"
+                  + ("; no key needed" if settings.is_local(args.value) else "") + "; for an Ollama there, `jev setup` sets its limits too)")
             return 0
         raise UsageError(f"jev config set backend <{'|'.join(settings.BACKENDS)}|http(s)://host[:port]>")
+    if args.key == "server" and args.action == "set" and args.value != "ollama":
+        raise UsageError("jev config set server ollama  (or unset server)")
     real, typ, _ = CONFIG_KEYS[args.key]
     if args.action == "unset":
         cfg.pop(real, None)

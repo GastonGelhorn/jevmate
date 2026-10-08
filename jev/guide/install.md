@@ -10,11 +10,15 @@
 files that run; `tools/checksums.sh` regenerates the sums after a change. `pip install .` (or
 pipx) installs the same package with a `jev` entry point, minus the skill symlinks.
 
+`jev setup` asks where the judge runs (Ollama here, Ollama on another machine by its address, or a
+hosted API with a key), prepares it and checks it with one decision; install.sh runs it at a terminal.
+
 The key: `jev auth set <key>`, or `TYPESAFE_API_KEY`, or `--api-key`. The backend: `--model`, the
 `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL` variables, then `jev config set backend
 typesafe|openrouter|ollama|ollaya|von|http://host:port`, then the vendor's host. A local server needs no key, and
 is never sent the one configured for a hosted backend. Ollama's `tev1` needs a 32K window (`PARAMETER num_ctx
-32768` in a Modelfile, `jev config set model` to its name); jev sends it one question at a time, four at once. The config file matters because an agent's tool shell, cron and launchd
+32768` in a Modelfile, `jev config set model` to its name); jev sends it one question at a time, four at once; an Ollama on another machine gets the same once
+`jev setup` (or `jev config set server ollama`) marks it. The config file matters because an agent's tool shell, cron and launchd
 start without a profile.
 
 Claude Code: `jev hooks install` and `jev statusline install` write absolute commands into
