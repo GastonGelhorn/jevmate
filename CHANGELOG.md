@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.0
+
+`jev setup` asks where the judge runs and checks it with one real decision: Ollama on this machine,
+Ollama on another one you reach (a Mac on your Tailscale network), TypeSafe or OpenRouter. For an
+Ollama it checks the version, uses `tev1-32k` or makes it from `tev1` with no download (`--pull`
+fetches `tev1`, 4.5 GB), and says what to change on the other machine when it cannot be reached.
+install.sh ends with it at a terminal, and `/jevmate:setup` runs it. Only `localhost:11434` counted
+as Ollama, so an Ollama elsewhere got every question in one request and no cap on the body; setup
+marks it and it gets Ollama's limits. On an M4 over Tailscale the doctor's decision took 0.6 s.
+
 ## 1.9.3
 
 The setup skill offers the local model, Ollama's tev1 with no key, next to the API keys, and the jev
