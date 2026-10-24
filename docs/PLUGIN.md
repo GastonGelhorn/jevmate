@@ -206,8 +206,9 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
 `jev session` (and the line above the prompt, `/jevmate`, `/jevmate:stats`, and `jev watch`) shows:
 
 - **went through jev**: every request of the session, hooks included: decisions, tokens, what jev
-  charged. Attribution is exact for hook calls and, with the plugin, for the agent's own `jev`
-  commands (the SessionStart hook tags them).
+  charged. A session counts the calls tagged with it: the hooks tag their own, the SessionStart hook
+  tags the agent's `jev` commands and ties the MCP server's process to the session. Calls another tool
+  makes through jev (a memory plugin's judge, say) carry that tool's tag and count for none.
 - **kept out**: only text that stood in for the agent's own reading (sift, rank, batch, tests, diff,
   failures, cluster, stream, the single-decision commands, the MCP tools, scripts built on the
   library) and what the trim hook dropped. The guard, the screen, inspect, routing, triage and the
@@ -239,6 +240,9 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
 - **the context's own cost**: each turn sends the whole conversation again, so the pane shows what
   the next turn costs to re-read it at the current model's cache-read price. It is the largest cost
   in a long session, and the reason a /compact pays off.
+- **safety**: the guard's questions and what you answered (the mod records each answer), commands
+  it could not judge because the model did not answer in time, pages and instruction files flagged,
+  and how many verdicts a model gave.
 
 ## Evals
 

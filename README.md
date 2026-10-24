@@ -302,7 +302,9 @@ hooks work alone.
   you work and `/jevmate` opens the full table in a pane. `/jevmate:stats` puts them in the chat,
   `jev session` prints them, `jev watch` shows them live in the desktop app's Terminal panel and
   `jev statusline install` under the prompt in the terminal CLI. The saving is an estimate and a
-  ceiling ([how it is counted](docs/PLUGIN.md#the-metric)).
+  ceiling ([how it is counted](docs/PLUGIN.md#the-metric)). `jev report` sums a span of days: what
+  Claude Code cost, the context each request read, the compactions, and the guard's questions,
+  answers and waits.
 
 ![The line above the prompt in Claude Code: saved 31.9% of the 5-hour window and 5.9% of the week, guard asked 8 times](docs/img/line-above-the-prompt.jpg)
 
