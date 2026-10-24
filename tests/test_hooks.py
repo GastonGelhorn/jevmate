@@ -599,7 +599,11 @@ class ApiNotice(unittest.TestCase):
         from jev.errors import AuthError, JevError, NetworkError
         from jev.hooks import _api_reason
         body = '{"error":{"message":"This account never purchased credits. Make sure your key is on the correct account.","code":402}}'
-        self.assertEqual(_api_reason(JevError("HTTP 402: " + body)), "HTTP 402: This account never purchased credits")
+        self.assertEqual(_api_reason(JevError("HTTP 402: " + body)),
+                         "HTTP 402: This account never purchased credits. Make sure your key is on the correct account")
+        ollama = '{"error":"\'tev1-32k:latest\' was downloaded in a format that is no longer supported. To re-download, run \'ollama pull tev1-32k:latest\'"}'
+        self.assertEqual(_api_reason(JevError("HTTP 400: " + ollama)), "HTTP 400: 'tev1-32k:latest' was downloaded in a format that is no "
+                         "longer supported. To re-download, run 'ollama pull tev1-32k:latest'")
         self.assertEqual(_api_reason(NetworkError("network error after 1 attempt(s): [Errno 61] Connection refused")),
                          "network error after 1 attempt(s): [Errno 61] Connection refused")
         self.assertEqual(_api_reason(AuthError("HTTP 401: the API key was rejected (env TYPESAFE_API_KEY). nope")),

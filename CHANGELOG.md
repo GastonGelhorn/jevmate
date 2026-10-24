@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.2
+
+When Jev cannot judge, the band shows the server's first sentence unless the status says it all
+(`Jev can't judge · 'tev1-32k:latest' was downloaded in a format that is no longer supported`), and
+the warning and the pane give its whole message, including what it says to run.
+
 ## 1.13.1
 
 The guard's rules compare resolved paths, so an edit in a project under a linked folder (/tmp on

@@ -211,6 +211,21 @@ describe('when Jev cannot judge, and a session where only compaction ran', () =>
     expect((await band.find({ text: /◆ jev/ }))?.text ?? '').toContain("Jev can't judge")
   })
 
+  const SAID: [string, string, string][] = [
+    ["the server's own words when the status alone says nothing",
+     "HTTP 400: 'tev1-32k:latest' was downloaded in a format that is no longer supported. To re-download, run 'ollama pull tev1-32k:latest'",
+     "'tev1-32k:latest' was downloaded in a format that is no longer supported"],
+    ['a page instead of a message is a backend error', 'HTTP 502 after 3 attempts: <html><body>Bad gateway</body></html>', 'backend error'],
+    ['a long message is cut to fit', 'HTTP 404: ' + 'x'.repeat(120), 'x'.repeat(71) + '…'],
+  ]
+  for (const [name, reason, shown] of SAID) {
+    test(name, async ($, on) => {
+      world(on, { ...fresh(), summary: { ...DOWN, jev: { ...DOWN.jev, api: { reason, since: null } } } })
+      await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+      expect((await bandText($, 'desktop')).text).toContain(`Jev can't judge · ${shown}`)
+    })
+  }
+
   test('a narrow band keeps the compactions ahead of the safety figures', async ($, on) => {
     const summary = { ...DOWN, jev: { ...DOWN.jev, compact: { runs: 2, judged: 144, moved: 2, cut: 0, kept: 142, freed: 6186, restored: 4996, rereads: 0, pruned: 0, saved_usd: 0 } } }
     world(on, { ...fresh(), summary })

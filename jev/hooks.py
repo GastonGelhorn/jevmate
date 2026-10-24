@@ -998,13 +998,14 @@ def _api_kind(e: Exception) -> str:
 
 
 def _api_reason(e: Exception) -> str:
-    """The failure in a few words: the status and the first sentence of the API's own message, when it sent one."""
+    """The failure as the server put it: the status and the API's own message whole, which often says what to
+    run next, or the first sentence of the error when it sent none."""
     text = mask_secrets(str(e))
     status = re.match(r"HTTP (\d{3})", text)
     said = re.search(r'"(?:message|error)"\s*:\s*"((?:[^"\\]|\\.){1,300})', text)
     if said:
-        first = said.group(1).replace('\\"', '"').split(". ")[0].rstrip(".")
-        return f"HTTP {status.group(1)}: {first}" if status else first
+        words = said.group(1).replace('\\"', '"').strip().rstrip(".")
+        return f"HTTP {status.group(1)}: {words}" if status else words
     return text.split(". ")[0][:200]
 
 

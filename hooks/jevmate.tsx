@@ -331,17 +331,21 @@ function isIdle(j: JevSide | undefined): boolean {
   return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0) && !(j.compact?.runs ?? 0) && !(j.compact?.window?.runs ?? 0) && !(j.compact?.auto?.runs ?? 0) && !j.api)
 }
 
-// Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason in two words.
-// The pane and the warning carry it whole.
+// Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason in two words
+// when the status says it all, otherwise the server's own first sentence. The pane and the warning carry it whole.
+const SAID_MAX = 72
 function shortReason(reason: string): string {
   const status = /^HTTP (\d{3})/.exec(reason)?.[1]
   if (status === '402') return 'no credit'
   if (status === '401' || status === '403') return 'key rejected'
   if (status === '429') return 'rate limited'
-  if (status?.startsWith('5')) return 'backend error'
   if (/^no API key/i.test(reason)) return 'no key'
   if (/^network error/i.test(reason)) return 'unreachable'
-  return status ? `HTTP ${status}` : reason.slice(0, 24)
+  const words = status ? /^HTTP \d{3}: (.*)$/s.exec(reason)?.[1] : reason
+  const said = words && !words.startsWith('<') ? words.split(/\.\s/)[0].trim() : ''
+  if (said) return said.length > SAID_MAX ? `${said.slice(0, SAID_MAX - 1).trimEnd()}…` : said
+  if (status?.startsWith('5')) return 'backend error'
+  return status ? `HTTP ${status}` : ''
 }
 
 function failing(j: JevSide | undefined): Piece[] | null {
