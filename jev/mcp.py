@@ -14,7 +14,7 @@ import os
 import sys
 import traceback
 
-from . import settings
+from . import ledger, settings
 from ._version import VERSION
 from .errors import JevError, UsageError
 
@@ -221,6 +221,9 @@ def _handle(msg: dict, out) -> None:
         return
     if method == "tools/call":
         name = params.get("name", "")
+        sid = ledger.process_session()
+        if sid:
+            os.environ["JEV_SESSION"] = ledger.session_tag(sid)  # this call's rows belong to the session it serves
         try:
             result = call(name, params.get("arguments") or {})
             text = json.dumps(result, ensure_ascii=False, indent=None if len(json.dumps(result)) > 4000 else 1)

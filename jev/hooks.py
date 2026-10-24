@@ -788,6 +788,8 @@ def session_start() -> int:
     p = _payload() or {}
     sid = str(p.get("session_id") or "")
     from . import ledger, settings
+    if sid:
+        ledger.bind_process(sid)
     env_file = os.environ.get("CLAUDE_ENV_FILE")
     if env_file and sid:
         line = f'export JEV_SESSION="session:{sid[:8]}"\n'

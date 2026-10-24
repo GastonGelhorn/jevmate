@@ -76,6 +76,29 @@ class SessionSummary(unittest.TestCase):
         self.assertIn("safety checks", text)
         self.assertIn("42 decisions", metrics.one_line(s))
 
+    def test_only_the_session_s_own_rows_count(self):
+        now = datetime.now()
+        stamp = lambda m: (now - timedelta(minutes=m)).isoformat(timespec="seconds")  # noqa: E731
+        here = str(self.home)
+        ledger.record({"ts": stamp(2), "cmd": "sift", "agent": "session:abcdef12", "q": 4, "ms": 300, "cwd": here, "in": 2_000, "out": 0})
+        ledger.record({"ts": stamp(2), "cmd": "rank", "agent": "", "q": 90, "ms": 900, "cwd": here, "in": 900_000, "out": 0})  # another tool, same folder
+        ledger.record({"ts": stamp(1), "cmd": "ask", "agent": "shelflife", "q": 3, "ms": 900, "cwd": here, "in": 50_000, "out": 0})
+        ledger.record({"ts": stamp(1), "cmd": "sift", "agent": "session:other000", "q": 9, "ms": 1, "cwd": here, "in": 9_999, "out": 0})
+        rows = ledger.session_rows(here, "abcdef12-0000", stamp(10))
+        self.assertEqual([r["cmd"] for r in rows], ["sift"])
+        self.assertEqual(rows[0]["in"], 2_000)
+        loose = ledger.session_rows(here, None, stamp(10))
+        self.assertEqual([r["cmd"] for r in loose], ["rank"], "without a session id: this folder's untagged rows")
+        self.assertEqual(ledger.session_rows(here + "-other", None, stamp(10)), [], "a sibling folder is not this one")
+
+    def test_the_mcp_server_finds_its_session_by_its_parent(self):
+        from unittest import mock
+        with mock.patch("os.getppid", return_value=4242), mock.patch("jev.ledger._parent", return_value=None):
+            ledger.bind_process("abcdef12-0000")
+            self.assertEqual(ledger.process_session(), "abcdef12-0000")
+        with mock.patch("os.getppid", return_value=4343):
+            self.assertIsNone(ledger.process_session())
+
     def test_no_transcript_no_rows(self):
         s = metrics.session_summary(str(self.home), None, None)
         self.assertIsNone(s["model"])

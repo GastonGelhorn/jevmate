@@ -8,8 +8,8 @@ parses the file once and then only what each turn appends. It also records each 
 context size, and where the conversation was compacted.
 
 The jev side is the ledger: rows tagged with this session (the plugin's SessionStart hook puts the
-tag in every Bash command's environment; the hooks tag their own rows), or, without a tag, rows
-from this directory inside the session's time window. Only rows that stood in for the agent's own
+tag in every Bash command's environment and ties it to the MCP server's process; the hooks tag
+their own rows). Calls other tools make through jev carry no session tag and are not counted. Only rows that stood in for the agent's own
 reading count as text kept out of the context, plus the output the trim hook dropped. The other
 hooks (guard, screen, inspect, routing, honesty, triage) are safety checks: they go through jev
 but the agent would not have read that text anyway.
@@ -283,10 +283,10 @@ def _top(counts: dict[str, int]) -> dict[str, int]:
 def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcript | None = None) -> dict:
     rows = ledger.session_rows(cwd, session_id, since)
     tag = ledger.session_tag(session_id)
-    hooks = ledger.hook_rows()
+    hooks = ledger.read_since(settings.HOOKS_LOG, since, contains=tag)
     asked = ledger.asked_count(hooks, since, tag)
     # command output the trim hook kept out of the context, by session tag (or the time window without one)
-    trims = [h for h in hooks if h.get("hook") == "trim" and h["ts"] >= since and (not tag or h.get("agent") in (None, "", tag))]
+    trims = [h for h in hooks if h.get("hook") == "trim" and h["ts"] >= since and (not tag or h.get("agent") == tag)]
     trimmed = sum(int(h.get("dropped_tokens") or 0) for h in trims)
     size = lambda r: r.get("in", 0) + (r.get("cached_in") or 0)  # noqa: E731
     reads = [r for r in rows if reads_for_agent(r.get("cmd"))]
@@ -314,7 +314,7 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
             short = name.removeprefix("hook:")
             hook_labels[short] = hook_labels.get(short, 0) + size(r)
     would = once + reread
-    mine = [h for h in hooks if h["ts"] >= since and (not tag or h.get("agent") in (None, "", tag))]
+    mine = [h for h in hooks if h["ts"] >= since and (not tag or h.get("agent") == tag)]
     kinds = lambda name: [h for h in mine if h.get("hook") == name]  # noqa: E731
     safety = {"asked": asked,
               "pages_flagged": sum(1 for h in kinds("screen") if h.get("warned")),

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -55,6 +56,45 @@ def touch_session(session_id: str, cwd: str = "", transcript: str | None = None)
     return marker
 
 
+def _parent(pid: int) -> int | None:
+    try:
+        out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout.strip()
+        return int(out) if out else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def bind_process(session_id: str, depth: int = 3) -> None:
+    """Tie the session to the processes above this hook (the shell it ran in, Claude Code), so the MCP server
+    Claude Code started for it finds the session by its own parent and tags its calls."""
+    folder = settings.SESSIONS_DIR / "by-pid"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        cutoff = time.time() - 30 * 86400
+        for old in folder.glob("*.json"):
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+    except OSError:
+        return
+    pid = os.getppid()
+    for _ in range(depth):
+        if not pid or pid <= 1:
+            break
+        try:
+            (folder / f"{pid}.json").write_text(json.dumps({"session": session_id}))
+        except OSError:
+            return
+        pid = _parent(pid)
+
+
+def process_session() -> str | None:
+    """The session of the Claude Code process that started this one, as its SessionStart hook bound it."""
+    try:
+        return json.loads((settings.SESSIONS_DIR / "by-pid" / f"{os.getppid()}.json").read_text()).get("session") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def session_marker(session_id: str) -> dict | None:
     try:
         return json.loads((settings.SESSIONS_DIR / f"{session_id}.json").read_text())
@@ -84,9 +124,10 @@ def read_tail(path: Path, max_bytes: int | None) -> str:
         return ""
 
 
-def read_since(path: Path, since: str | None) -> list[dict]:
+def read_since(path: Path, since: str | None, contains: str | None = None) -> list[dict]:
     """The rows written at or after `since` (local ISO seconds). The file is read back from its end one chunk at a
-    time, only as far as that time, so a long session keeps its first rows however much was written since."""
+    time, only as far as that time, so a long session keeps its first rows however much was written since.
+    With `contains`, only lines holding that text are parsed (a session's tag, say)."""
     if not since:
         return parse_rows(read_tail(path, None))
     data = b""
@@ -105,6 +146,9 @@ def read_since(path: Path, since: str | None) -> list[dict]:
                     break
     except OSError:
         return []
+    if contains:
+        needle = contains.encode()
+        data = b"\n".join(line for line in data.split(b"\n") if needle in line)
     return [r for r in parse_rows(data.decode("utf-8", "replace")) if r["ts"] >= since]
 
 
@@ -178,17 +222,19 @@ def session_tag(session_id: str | None) -> str | None:
     return f"session:{session_id[:8]}" if session_id else None
 
 
+def _inside(path: str, root: str) -> bool:
+    root = root.rstrip("/")
+    return path == root or path.startswith(root + "/")
+
+
 def session_rows(cwd: str, session_id: str | None, since: str) -> list[dict]:
-    """One session's rows: the hook tag when a hook made the call, else cwd and the time window
-    (approximate when two sessions share a directory)."""
+    """One session's rows: the ones tagged with it. The plugin tags every call made in a session: its hooks, the
+    agent's Bash commands and the MCP server. Without a session id, this directory's untagged rows since `since`."""
     tag = session_tag(session_id)
-    out = []
-    for r in rows(tail_bytes=WINDOW_ROWS_BYTES):
-        if "err" in r:
-            continue
-        if (tag and r.get("agent") == tag) or (cwd and str(r.get("cwd", "")).startswith(cwd) and r["ts"] >= since):
-            out.append(r)
-    return out
+    if tag:
+        return [r for r in read_since(settings.USAGE_FILE, since, contains=tag) if "err" not in r and r.get("agent") == tag]
+    return [r for r in read_since(settings.USAGE_FILE, since)
+            if "err" not in r and not r.get("agent") and cwd and _inside(str(r.get("cwd", "")), cwd)]
 
 
 def log_hook(hook: str, row: dict) -> None:
@@ -209,4 +255,4 @@ def hook_rows(tail_bytes: int | None = 1_000_000, since: str | None = None) -> l
 
 def asked_count(hooks: list[dict], since: str, tag: str | None) -> int:
     return sum(1 for r in hooks if r.get("hook") == "guard" and r.get("decision") not in (None, "-") and r["ts"] >= since
-               and (not tag or r.get("agent") in (None, "", tag)))
+               and (not tag or r.get("agent") == tag))
