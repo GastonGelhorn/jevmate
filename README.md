@@ -261,10 +261,16 @@ hooks work alone.
   score ("where on this scale?") with a position between your levels and a confidence. The MCP tool
   is `decide`. ``jev yes 'Does `text` ask for money back?' --field text=@mail.txt`` prints `0.831 yes`.
 - **Guard** (hook): asks before a Bash command that looks destructive, remembers what you let
-  through and knows what you last asked for; it can ask or refuse but never allow. In
-  bypassPermissions mode, where a hook alone could only refuse, the mod asks in Claude's own dialog.
+  through and knows what you last asked for; it can ask or refuse but never allow. Reading, writing
+  to a temporary folder and editing files git tracks in the project are settled by rules with no
+  model call; the model answers one question first and two more only for a command that may be
+  destructive, and a command that can delete, push or reach another machine is asked about when no
+  verdict comes in time. In bypassPermissions mode, where a hook alone could only refuse, the mod
+  asks in Claude's own dialog and records your answer.
   [Its bars](docs/MEASUREMENTS.md#the-guards-bars-2026-09-24).
 - **Screen** (hook): marks fetched content that holds text aimed at an agent, without blocking it.
+  Screen, trim and inspect run with a hosted judge and are off by default on a local model
+  (`screen_mode`, `trim_mode`, `inspect_mode`: auto, on, off).
   [Its bar](docs/MEASUREMENTS.md#the-screens-bar-2026-09-24).
 - **Trim** (hook): long command output is trimmed to the parts that carry information, with the full
   output kept on disk. [Measured](docs/MEASUREMENTS.md#output-sizes-and-the-trim-floor-2026-10-02).

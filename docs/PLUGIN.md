@@ -45,14 +45,27 @@ plugin's settings (`/config`) or the environment.
   since the last look (two questions: does it tell an agent to do something the person would not
   want, does it plant a phrase or link) and speaks only when a new file flags; on a fresh start, adds
   one line of context saying jev is available. `jev inspect` runs the same by hand.
-- **PreToolUse on Bash** (`guard`): read-only commands skip the call. Otherwise three yes/no in one
-  request: destructive, outside the project, and part of what the person last asked for (the request
-  is read from the transcript). `ask` at p(destructive) >= 0.60, and also at p >= 0.45 when the
-  command is not part of the request (p <= 0.25); never `allow`; `deny` at p >= 0.90 with
-  `guard_mode: deny`, or in bypassPermissions mode when the mod is not there to ask (below). Keys,
-  tokens and passwords in a command are masked before it is sent or logged.
+- **PreToolUse on Bash** (`guard`): rules settle three kinds of command with no model call
+  (`jev/shellrules.py`): one that only reads (lists, prints, searches, shows git history, every part
+  of a pipeline or a `&&` chain), one that writes only under a temporary folder (a scratchpad,
+  `$TMPDIR`, `/tmp`), and an edit of files git tracks inside the project by `sed -i` or by a Python
+  script on stdin that only reads and writes files there (no deletion, no network, no other process,
+  no path outside the project; undone by `git checkout`). A command substitution, a variable the
+  rules cannot expand or a program they do not know goes to the model. It answers one yes/no first,
+  destructive; only from p >= 0.40 two more follow: outside the project, and part of what the person
+  last asked for (read from the transcript). `ask` at p(destructive) >= 0.60, and also at p >= 0.45
+  when the command is not part of the request (p <= 0.25); never `allow`; `deny` at p >= 0.90 with
+  `guard_mode: deny`, or in bypassPermissions mode when the mod is not there to ask (below). When
+  the model gives no verdict in time, a command a plain pattern marks as able to delete, push or reach
+  another machine (`rm -r`, `git push`, `ssh`, `DROP TABLE` …) is asked about, or refused where no
+  prompt can appear; any other runs and counts as unchecked on the line above the prompt. Each row in
+  the log carries the check's own time. Keys, tokens and passwords in a command are masked before it
+  is sent or logged.
 - **PostToolUse on WebFetch / WebSearch** (`screen`): one yes/no over the returned text; at
-  p >= 0.55 one line of context says the text reads like instructions aimed at an agent.
+  p >= 0.55 one line of context says the text reads like instructions aimed at an agent. `screen_mode`,
+  `trim_mode` and `inspect_mode` default to `auto`: on with a hosted judge, off on a model on this
+  machine or another of yours, where each check takes seconds and holds the agent; `on` runs them
+  anyway.
 - **PostToolUse and PostToolUseFailure on Bash** (`after-bash`): records that the command ran (the
   guard's memory: an identical command is not asked about twice in a session; `jev hooks tune`
   reads the pairs). **Trim**: output above ~4,000 tokens (`JEV_TRIM_MIN`) from a command that is not
