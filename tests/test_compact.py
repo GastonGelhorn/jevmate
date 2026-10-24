@@ -198,6 +198,11 @@ class Judged(unittest.TestCase):
         self.assertEqual(plan["stats"]["repeated"], 2)
         self.assertLessEqual(len(plan["restore"]), compact.RESTORE_TOKENS * settings.CHARS_PER_TOKEN)
 
+    def test_one_saved_result_is_named_in_the_singular(self):
+        events = [say("go"), call(1, "Bash", {"command": "make", "description": "Build"}), res(1, BIG)]
+        p = self.build(events, apply=True, tag="session:abcd1234", recent=0)[0]
+        self.assertIn("the largest tool result was saved", p["restore"])
+
     def test_the_list_and_the_index_say_what_each_result_was_and_why(self):
         events = [say("fix the retry bug"), call(1, "Bash", {"command": "R=/r; du -sh $R/*", "description": "Size every folder"}), res(1, BIG),
                   call(2, "Bash", {"command": "make"}), res(2, "yes it built " + BIG)]

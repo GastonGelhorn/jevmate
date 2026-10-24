@@ -674,7 +674,8 @@ def _restore(plan: dict, items: list[dict], budget: int, folder: Path | None, mi
         Path(index).write_text("\n".join(lines) + "\n", encoding="utf-8", errors="replace")
     room = int(budget * settings.CHARS_PER_TOKEN)
     where = f"in {folder}, listed in index.md" if folder is not None else "on disk"
-    lead = f"{STUB} Before this compaction, the {len(saved)} largest tool results were saved {where}."
+    what = "the largest tool result was" if len(saved) == 1 else f"the {len(saved)} largest tool results were"
+    lead = f"{STUB} Before this compaction, {what} saved {where}."
     head = f"{lead} The ones the work still needs are repeated below, verbatim or cut; read any other from that folder when it is needed."
     out = [head]
     used = len(head)
