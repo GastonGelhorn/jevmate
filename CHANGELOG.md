@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.12.0
+
+jev keeps Claude Code's auto-compact window at 400K (`compact_window`, plugin option and
+`jev config`), written to Claude Code's user settings at session start unless you set your own;
+`jev compact --window` shows and changes it. `jev compact --simulate` replays recent sessions at
+several windows: on a week of coding sessions, 400K cost 42% less to carry than compacting near 1M,
+at about five compactions a day. Each compaction at jev's window is priced against carrying the
+larger context and counts on the line above the prompt and in the pane. A summary Claude Code
+computed ahead of time goes ahead. On a local model the PreCompact hook saves and lists the large
+results without a model call. A background compaction that could not start records why, and
+`jev report` counts those.
+
 ## 1.11.0
 
 `jev report` sums a span of days (seven by default): what Claude Code cost at list price, the
