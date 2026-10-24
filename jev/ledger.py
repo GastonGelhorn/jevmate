@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,8 @@ from pathlib import Path
 from . import settings
 
 WINDOW_ROWS_BYTES = 4_000_000
+SINCE_CHUNK = 1 << 20
+_TS = re.compile(rb'"ts":\s*"([^"]+)"')
 
 
 def now_iso() -> str:
@@ -79,6 +82,30 @@ def read_tail(path: Path, max_bytes: int | None) -> str:
             return f.read().decode("utf-8", "replace")
     except OSError:
         return ""
+
+
+def read_since(path: Path, since: str | None) -> list[dict]:
+    """The rows written at or after `since` (local ISO seconds). The file is read back from its end one chunk at a
+    time, only as far as that time, so a long session keeps its first rows however much was written since."""
+    if not since:
+        return parse_rows(read_tail(path, None))
+    data = b""
+    try:
+        with open(path, "rb") as f:
+            pos = os.fstat(f.fileno()).st_size
+            while pos > 0:
+                step = min(SINCE_CHUNK, pos)
+                pos -= step
+                f.seek(pos)
+                data = f.read(step) + data
+                lines = data.split(b"\n", 2)
+                first = lines[1] if pos > 0 and len(lines) > 1 else lines[0]  # the chunk's first line may be partial
+                m = _TS.search(first)
+                if m and m.group(1).decode("ascii", "replace") < since:
+                    break
+    except OSError:
+        return []
+    return [r for r in parse_rows(data.decode("utf-8", "replace")) if r["ts"] >= since]
 
 
 def parse_rows(text: str) -> list[dict]:
@@ -173,7 +200,10 @@ def log_hook(hook: str, row: dict) -> None:
         pass
 
 
-def hook_rows(tail_bytes: int | None = 1_000_000) -> list[dict]:
+def hook_rows(tail_bytes: int | None = 1_000_000, since: str | None = None) -> list[dict]:
+    """The hook log: from `since` on when given, else its last `tail_bytes`."""
+    if since:
+        return read_since(settings.HOOKS_LOG, since)
     return parse_rows(read_tail(settings.HOOKS_LOG, tail_bytes))
 
 
