@@ -539,7 +539,7 @@ def session_summary(cwd: str, session_id: str | None = None, transcript: Transcr
         jev["share"] = jev["saved_total"] / session_usd
     if plan and sid:
         plan_record(sid, spent if spent is not None else (model["usd"] if model else None), plan)
-    view = plan_view(sid, jev["would"] + jev["routing"]["subagent_saved"]) if sid else None
+    view = plan_view(sid, max(0.0, jev["saved_total"])) if sid else None
     subagents = subagent_view(tr.path if tr else None)
     return {"session": sid, "cwd": cwd, "transcript": str(tr.path) if tr else None, "since": since, "model": model, "jev": jev,
             "spent": spent, "plan": view, "subagents": subagents}
