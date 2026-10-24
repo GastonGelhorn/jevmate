@@ -147,6 +147,18 @@ terminal CLI). It calls the local
   line each and the cut ones by their head and tail, and the calls that wrote a file without the file's
   text. The saving is logged at the session model's input price. A summary computed ahead of time is
   skipped while this is on, since it would be computed over the unpruned conversation and thrown away.
+- **The auto-compact window** (`compact_window`: 400K, a number of tokens, or off): the SessionStart
+  hook writes `autoCompactWindow` into Claude Code's user settings when it is missing and remembers
+  the value it wrote, so a value you set yourself is never changed and `off` removes only jev's.
+  Claude Code compacts at the window less the 33K it keeps for the summary, and computes that
+  summary ahead of time (the mod lets a precomputed summary go ahead). `jev compact --window` shows
+  and sets it. Each compaction Claude Code makes there is priced: every later request read the
+  smaller context instead of the larger one, until the larger would itself have reached the
+  model's window, less the compaction's own cost (the summarizer's read of the context, a summary
+  of the size Claude Code recorded at output price, and the new context written to the cache).
+  `jev compact --simulate [--days 7]` replays recent sessions at several windows with the same
+  prices; on a local model the PreCompact hook saves and lists the large results without asking
+  the model, so the compaction is not kept waiting.
 - **Compactions it starts** (`compact_mode: auto`), in the background, never before a turn, once the
   context passes 200k tokens (`JEV_AUTO_COMPACT_MIN`). Idle: a timer from the main thread's last
   request fires after 55 minutes (`JEV_AUTO_COMPACT_IDLE`), while the prompt cache (an hour at most)

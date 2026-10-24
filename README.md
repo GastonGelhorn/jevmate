@@ -278,6 +278,13 @@ hooks work alone.
 
 - **Inspect** (hook): at session start, new or changed skills and plugins are read for instructions
   aimed at an agent; `jev inspect` runs it by hand.
+- **The auto-compact window** (`compact_window`, 400K by default): every request re-reads the whole
+  conversation, so where Claude Code compacts decides most of what a long session costs. jev keeps
+  Claude Code's `autoCompactWindow` at 400K unless you set your own; Claude Code computes the summary
+  ahead of time, so the compaction does not hold the work. `jev compact --simulate` replays your last
+  week at other windows; on a week of coding sessions 400K cost 42% less to carry than compacting near
+  1M, at about five compactions a day. Each compaction at that window is priced on the line above the
+  prompt against carrying the larger context.
 - **Compaction** (`compact_mode`, off by default): before Claude Code or Codex compacts, rules and
   then Jev judge every large tool result and save it on disk; a short block after the compaction
   repeats what the work still needs and lists where the rest is. Your words, Claude's and the latest

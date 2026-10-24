@@ -226,3 +226,26 @@ judge in full, more than the 120 s Claude Code gives the PreCompact hook. On twe
 known answer it ranked the needed ones above the stale ones (AUC 0.88), but in a narrow range: the
 needed at 0.42 to 0.72, the stale at 0.22 to 0.47, so at Jev's 0.65 bar it kept one of the four. Hence
 its own bars (0.48, 0.30), and only the newest 20 judged on a local model: 45 s.
+
+## The auto-compact window (2026-10-24)
+
+`jev compact --simulate` on a week of coding sessions (45 sessions, 7,647 main-thread requests, 8
+real compactions; after a compaction the context restarted at about 105K): what the main thread's
+context cost to carry, cache reads and writes plus each compaction (the summarizer's read and a
+28K summary at output price).
+
+| window | context cost | compactions | difference |
+|---|---|---|---|
+| 967K | $987 | 6 | — |
+| 600K | $705 | 18 | −29% |
+| 400K | $571 | 33 | −42% |
+| 300K | $524 | 54 | −47% |
+| 200K | $511 | 117 | −48% |
+
+Below 400K the saving barely grows while the compactions multiply, so 400K is the default. What
+the replay leaves out is whatever the agent reads again after a compaction to recover a detail the
+summary dropped.
+
+The same week, tev1 judged 422 prompts for a change of work (`compact_mode: auto`). On 74 of them
+labelled by hand, at p ≥ 0.75 three in twelve were new work; at the 0.85 bar, two in three. The
+bar stays at 0.85: lower, it would compact in the middle of a task.
