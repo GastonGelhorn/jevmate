@@ -164,6 +164,8 @@ def jev_side(usage: list[dict], hooks: list[dict]) -> dict:
                   "unchecked": sum(1 for h in guard if "err" in h),
                   "wait_ms": {"p50": _pct(waits, 0.5), "p90": _pct(waits, 0.9), "total_h": round(sum(waits) / 3.6e6, 2)}},
         "compactions_by_jev": sum(1 for h in hooks if h.get("hook") == "compact-auto"),
+        "compactions_not_started": {why: sum(1 for h in hooks if h.get("hook") == "compact-auto-skip" and h.get("why") == why)
+                                    for why in sorted({str(h.get("why")) for h in hooks if h.get("hook") == "compact-auto-skip"})},
         "precompact": {"runs": sum(1 for h in hooks if h.get("hook") == "compact" and "err" not in h),
                        "errors": sum(1 for h in hooks if h.get("hook") == "compact" and "err" in h),
                        "rereads": sum(1 for h in hooks if h.get("hook") == "compact-reread")},
@@ -202,6 +204,7 @@ def render(r: dict) -> str:
         f"  context      mean {_k(c['mean'])} · p90 {_k(c['p90'])} · {c['over_700k']:.0%} of requests above 700K",
         f"  compactions  {len(comps)} by Claude Code ({', '.join(f'{n} {t}' for t, n in sorted(by.items(), key=lambda kv: str(kv[0])))})"
         + (f", median {mins[len(mins) // 2] / 60000:.1f} min" if mins else "") + f" · {j['compactions_by_jev']} started by jev"
+        + (" (not started: " + ", ".join(f"{n} {w}" for w, n in j["compactions_not_started"].items()) + ")" if j.get("compactions_not_started") else "")
         + f" · results read again after one: {j['precompact']['rereads']}",
         f"  guard        {g['commands']:,} commands · {g['questions']} questions · answers: run {a['run']}, refused {a['refuse']}, "
         f"dismissed {a['dismissed']} · {g['unchecked']} without a verdict",

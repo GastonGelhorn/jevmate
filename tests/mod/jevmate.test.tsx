@@ -727,6 +727,25 @@ describe('compactions jev starts itself (compact_mode auto), in the background',
     expect(seen.length).toBe(1)
   })
 
+  test('a compaction that could not start says why', { options: { compact_mode: 'auto' } }, async ($, on) => {
+    const w: World = { ...fresh(), usage: BIG_CONTEXT }
+    const clock = world(on, w)
+    on('turn.step', async function* (_$, e) {
+      return step(e.turnId)
+    })
+    on('session.compact', () => {
+      throw new Error('a turn is running')
+    })
+    await start($)
+    await turn($, 't1', 'fix the retry bug in the outbox and add a test for the backoff')
+    await clock.advance(56 * 60_000)
+    await clock.settle()
+    const row = w.stdins.find(x => x.includes('"hook":"compact-auto-skip"')) ?? ''
+    expect(row).toContain('"why":"rejected"')
+    expect(row).toContain('"reason":"idle"')
+    expect(row).toContain('"tokens":300000')
+  })
+
   test('a prompt before then stops the timer', { options: { compact_mode: 'auto' } }, async ($, on) => {
     const w: World = { ...fresh(), usage: BIG_CONTEXT }
     const clock = world(on, w)

@@ -503,17 +503,27 @@ async function shift($: Api, prompt: string): Promise<number | null> {
 // first request after the break writes a small context instead of the whole one. After a turn whose prompt started
 // other work, it compacts while the answer is read: the details of the last work are no longer needed.
 async function backgroundCompact($: Api, reason: 'idle' | 'shift'): Promise<void> {
-  if (compactingNow || cfg.compactMode !== 'auto' || !canAsk) return
+  if (cfg.compactMode !== 'auto') return
+  // Why a compaction that could have started did not: the trigger fired and the context was large enough.
+  const skipped = (why: string, extra: Record<string, unknown> = {}) => void note($, 'compact-auto-skip', { reason, why, ...extra })
+  if (compactingNow || !canAsk) {
+    if (reason === 'idle') skipped(compactingNow ? 'busy' : 'nobody-at-the-prompt')
+    return
+  }
   compactingNow = true
+  let tokens = 0
   try {
-    const tokens = (await $.session.usage()).context.tokens ?? 0
+    tokens = (await $.session.usage()).context.tokens ?? 0
     if (tokens < autoMin) return
     const now = await $.clock.now()
     let p: number | null = null
     let instructions: string | undefined
     if (reason === 'idle') {
       // Woken late (a sleeping machine): the cache has gone, so a summary would read the whole context at full price.
-      if (lastAt <= 0 || now - lastAt >= CACHE_LIFE_MS) return
+      if (lastAt <= 0 || now - lastAt >= CACHE_LIFE_MS) {
+        skipped('cache-expired', { tokens })
+        return
+      }
     } else {
       if (!recentPrompts.length || lastPrompt.length < 20 || /^(\/|\[Image:|@"|@\/)/.test(lastPrompt)) return
       p = await shift($, lastPrompt)
@@ -530,9 +540,13 @@ async function backgroundCompact($: Api, reason: 'idle' | 'shift'): Promise<void
     try {
       result = await $.session.compact(instructions ? { instructions } : {})
     } catch {
-      return // a turn started meanwhile: the next chance comes after it
+      skipped('rejected', { tokens }) // a turn started meanwhile: the next chance comes after it
+      return
     }
-    if ('skip' in result) return
+    if ('skip' in result) {
+      skipped('skipped', { tokens, detail: String(result.skip).slice(0, 120) })
+      return
+    }
     const u = result.usage
     const before = result.tokensBefore ?? tokens
     await note($, 'compact-auto', {
@@ -552,7 +566,7 @@ async function backgroundCompact($: Api, reason: 'idle' | 'shift'): Promise<void
     lastAnswer = ''
     void refresh($)
   } catch {
-    // the session ended or the module reloaded mid-way: nothing to do
+    skipped('error', { tokens }) // the session ended or the module reloaded mid-way
   } finally {
     compactingNow = false
   }

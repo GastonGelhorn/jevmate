@@ -894,7 +894,7 @@ def pre_compact() -> int:
 # ---------------------------------------------------------------- the mod's channel
 
 RECORDABLE = {"evidence", "effort", "effort-cache", "subagent", "compact", "compact-cache", "compact-reread", "compact-auto",
-              "guard-answer"}
+              "guard-answer", "compact-auto-skip"}
 
 
 def _usage_cost(u: dict, model: str) -> float:
