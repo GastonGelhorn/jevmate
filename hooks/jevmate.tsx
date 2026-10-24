@@ -1145,8 +1145,8 @@ export const register: Register = (on, options) => {
       await learnCompactCost($, result)
       return result
     }
-    // A summary computed ahead of time over the unpruned conversation would be thrown away: prune when the compaction comes instead.
-    if (e.trigger === 'precompute') return { skip: 'jev prunes the conversation when the compaction comes' }
+    // A summary computed ahead of time lets the compaction happen without a wait: it goes ahead as it is.
+    if (e.trigger === 'precompute') return next(e)
     const changes = await compactPlan($, e.messages)
     if (!changes || !changes.size) return next(e)
     $.ui.log(`jev compact: the summarizer reads the conversation with ${plural(changes.size, 'tool result')} moved out or cut; all of them are saved on disk`)

@@ -630,13 +630,15 @@ describe('compaction', () => {
     expect(seen[2].toolResults[0].tool_use_id).toBe('u1')
   })
 
-  test('a summary computed ahead of time is skipped while pruning is on', { options: { compact_mode: 'on' } }, async ($, on) => {
+  test('a summary computed ahead of time goes ahead, so the compaction does not wait', { options: { compact_mode: 'on' } }, async ($, on) => {
     const w = fresh({ compact_cache: { version: '2.1.287', verdict: 'pays' } })
     world(on, w)
     on('session.compact', () => ({ messages: [SUMMARY_MSG] }))
     await start($)
-    const result = (await $.session.compact({ trigger: 'precompute', messages: MSGS } as never)) as { skip?: string }
-    expect(result.skip).toBeDefined()
+    const result = (await $.session.compact({ trigger: 'precompute', messages: MSGS } as never)) as { skip?: string; messages?: unknown[] }
+    expect(result.skip).toBeUndefined()
+    expect(result.messages).toEqual([SUMMARY_MSG])
+    expect(w.calls.some(a => a.includes('compact'))).toBe(false)
   })
 
   test('a saved result read again is counted', { options: { compact_mode: 'on' } }, async ($, on) => {
