@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.0
+
+`jev report` sums a span of days (seven by default): what Claude Code cost at list price, the
+context each request read (mean, p90, the share above 700K), the compactions and how long they took,
+the guard's commands, questions, answers and waits, and jev's requests by who made them. A session's
+figures count the calls tagged with it; the MCP server finds its session through the process that
+started it and tags its calls. The ledgers are read back to the session's start, however long it
+ran. The mod records what you answer when the guard asks, and the line and the pane show the
+commands you stopped and those the guard could not judge. The share of the 5-hour and weekly
+windows follows what jev saved.
+
 ## 1.10.0
 
 `jev setup` asks where the judge runs and checks it with one real decision: Ollama on this machine,
