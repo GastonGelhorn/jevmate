@@ -234,8 +234,12 @@ lives for the session, so the HTTPS connection is reused and nothing is recompil
 
 - **went through jev**: every request of the session, hooks included: decisions, tokens, what jev
   charged. A session counts the calls tagged with it: the hooks tag their own, the SessionStart hook
-  tags the agent's `jev` commands and ties the MCP server's process to the session. Calls another tool
-  makes through jev (a memory plugin's judge, say) carry that tool's tag and count for none.
+  tags the agent's `jev` commands and ties the MCP server's process to the session and its working
+  folder, so the MCP tools read paths from the session's worktree when it has one (Claude Code starts
+  the server in the main checkout). Calls another tool makes through jev (a memory plugin's judge,
+  say) carry that tool's tag and count for none.
+- **jev's own cost**: what the session's requests cost on a hosted judge; on the local model,
+  nothing. A session that used both says how many went to each.
 - **kept out**: only text that stood in for the agent's own reading (sift, rank, batch, tests, diff,
   failures, cluster, stream, the single-decision commands, the MCP tools, scripts built on the
   library) and what the trim hook dropped. The guard, the screen, inspect, routing, triage and the

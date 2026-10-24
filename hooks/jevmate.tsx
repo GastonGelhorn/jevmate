@@ -81,6 +81,7 @@ type Routing = { subagents: number; subagent_saved: number; subagent_spent: numb
 type JevSide = {
   local_judge?: boolean
   requests: number
+  hosted?: number // of them, on a hosted judge (the rest on the local model, free)
   decisions: number
   tokens: number
   cached: number
@@ -355,6 +356,18 @@ function failing(j: JevSide | undefined): Piece[] | null {
 }
 
 const savedTotal = (j: JevSide) => j.saved_total ?? j.saved
+
+// A local model's requests are free and a hosted judge's are priced; a session that used both says how many went to each.
+function ownCost(j: JevSide): Piece[] {
+  const hosted = j.hosted ?? j.requests
+  const local = j.requests - hosted
+  const requests = (k: number) => `${n(k)} ${k === 1 ? 'request' : 'requests'}`
+  if (!hosted) return [{ text: 'nothing', bold: true }, { text: ` · ${requests(local)} on the local model · nothing from the Claude plan`, dim: true }]
+  return [
+    { text: money(j.paid), bold: true },
+    { text: ` for ${requests(hosted)} on a hosted judge${local ? ` · ${n(local)} on the local model at no cost` : ''} · nothing from the Claude plan`, dim: true },
+  ]
+}
 
 // What jev caught this session, in its own units: questions asked, pages and files flagged, runs sorted.
 function caught(j: JevSide): Piece[][] {
@@ -1056,7 +1069,7 @@ export const register: Register = (on, options) => {
           : null}
         {row('by command', [{ text: top(j.labels, 4) || 'nothing yet: sift, rank, tests, diff and cluster show up here', dim: true }])}
         {top(j.hook_labels, 4) ? row('safety checks', [{ text: `${top(j.hook_labels, 4)} · not text the agent avoided reading`, dim: true }]) : null}
-        {row("jev's own cost", [{ text: `${money(j.paid)}`, bold: true }, { text: ` for ${n(j.requests)} requests on your jev backend · nothing from the Claude plan`, dim: true }])}
+        {row("jev's own cost", ownCost(j))}
         <Text> </Text>
         {controls}
         <Text> </Text>

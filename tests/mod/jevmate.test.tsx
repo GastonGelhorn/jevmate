@@ -237,6 +237,21 @@ describe('when Jev cannot judge, and a session where only compaction ran', () =>
     expect(text).not.toContain('144 results saved')
   })
 
+  const COSTS: [string, Record<string, unknown>, string][] = [
+    ['a local model costs nothing', { hosted: 0, paid: 0 }, 'nothing · 12 requests on the local model · nothing from the Claude plan'],
+    ['a session that used both says how many went to each', { hosted: 5 }, '$0.04 for 5 requests on a hosted judge · 7 on the local model at no cost'],
+  ]
+  for (const [name, side, shown] of COSTS) {
+    test(name, async ($, on) => {
+      world(on, { ...fresh(), summary: { ...SUMMARY, jev: { ...JEV, ...side } } })
+      await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
+      await $.command.run({ command: 'jevmate', args: '' })
+      const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'desktop', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+      await pane.redraw()
+      expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain(shown)
+    })
+  }
+
   test('the pane says why and what it means', async ($, on) => {
     world(on, { ...fresh(), summary: DOWN })
     await $.session.start({ cwd: '/work/shop', surface: 'desktop', isInteractive: true })
@@ -291,7 +306,7 @@ describe('the pane', () => {
       expect((await pane.find({ text: /^context/ }))?.text ?? '').toContain('in use')
       expect(await pane.find({ text: /sift 400k/ })).toBeDefined()
       expect(await pane.find({ text: /guard 150k/ })).toBeDefined()
-      expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain('nothing from the Claude plan')
+      expect((await pane.find({ text: /jev's own cost/ }))?.text ?? '').toContain('$0.04 for 12 requests on a hosted judge · nothing from the Claude plan')
       const drawn = JSON.stringify(await pane.drawn())
       if (surface === 'terminal') expect(drawn).toContain('█')
       else expect(drawn).not.toContain('█')

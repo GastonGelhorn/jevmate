@@ -61,6 +61,11 @@ class SessionSummary(unittest.TestCase):
         self.assertEqual(j["tokens"], 10_500)
         self.assertEqual(j["requests"], 2)
         self.assertAlmostEqual(j["paid"], 10_000 / 1e6 * 0.042)
+        self.assertEqual(j["hosted"], 2)
+        self.assertEqual(metrics.own_cost(j), "$0.0004 for 2 requests on a hosted judge, nothing from the Claude plan")
+        self.assertEqual(metrics.own_cost({**j, "hosted": 1, "paid": 0.0002}),
+                         "$0.0002 for 1 request on a hosted judge, 1 on the local model at no cost, nothing from the Claude plan")
+        self.assertEqual(metrics.own_cost({**j, "hosted": 0, "paid": 0}), "nothing: 2 requests on the local model, nothing from the Claude plan")
         self.assertEqual(j["kept_out"], 10_000, "the guard's tokens went through jev but are not text the agent avoided reading")
         self.assertEqual(j["overhead"], 500)
         self.assertAlmostEqual(j["once"], 10_000 / 1e6 * 10.0, msg="read once on the next turn, at Fable 5.1's input price")

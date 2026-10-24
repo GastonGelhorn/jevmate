@@ -269,7 +269,7 @@ def render_statusline(raw: str) -> str:
     j = metrics.jev_side(cwd, sid or None, since)
     if j["requests"] or j["asked"]:
         right = (f"{GREEN}jev{RESET}: {j['decisions']:,} decisions · {fmt_k(j['kept_out'])} tokens kept out · {GREEN}~${j['would']:.2f} not spent{RESET}{DIM} (ceiling){RESET}"
-                 + (f" · {YELLOW}hooks asked {j['asked']}{RESET}" if j["asked"] else "") + f"{DIM} · ${j['paid']:.4f} paid{RESET}")
+                 + (f" · {YELLOW}hooks asked {j['asked']}{RESET}" if j["asked"] else "") + (f"{DIM} · ${j['paid']:.4f} paid{RESET}" if j["hosted"] else ""))
     else:
         right = f"{DIM}jev: nothing decided yet this session{RESET}"
     line = f"{left}  {DIM}│{RESET}  {right}" if left else right

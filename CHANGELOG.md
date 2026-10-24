@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.3
+
+In a session working in a worktree, the MCP tools (`sift`, `tests`, `diff`) read paths from the
+worktree: SessionStart binds the session's folder to the MCP server's process. jev's own cost counts
+only requests to a hosted judge; on the local model it reads "nothing", and a session that used both
+says how many went to each.
+
 ## 1.13.2
 
 When Jev cannot judge, the band shows the server's first sentence unless the status says it all

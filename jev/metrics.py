@@ -321,6 +321,17 @@ def _top(counts: dict[str, int]) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
 
+def own_cost(j: dict, then: str = "") -> str:
+    """What jev's own requests cost this session: a local model's are free, a hosted judge's are priced, and
+    a session that used both says how many went to each. `then` styles what follows the figure."""
+    hosted, local = j.get("hosted", j["requests"]), j["requests"] - j.get("hosted", j["requests"])
+    requests = lambda k: f"{k:,} request{'' if k == 1 else 's'}"  # noqa: E731
+    if not hosted:
+        return f"nothing{then}: {requests(local)} on the local model, nothing from the Claude plan"
+    return (f"${j['paid']:.4f}{then} for {requests(hosted)} on a hosted judge"
+            + (f", {local:,} on the local model at no cost" if local else "") + ", nothing from the Claude plan")
+
+
 def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcript | None = None) -> dict:
     rows = ledger.session_rows(cwd, session_id, since)
     tag = ledger.session_tag(session_id)
@@ -384,7 +395,8 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
     compact["window"] = window_compactions(transcript)
     saved = would - paid_reads
     from .hooks import api_status
-    return {"api": api_status(tag), "requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
+    return {"api": api_status(tag), "requests": len(rows), "hosted": sum(1 for r in rows if not r.get("local")),
+            "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
             "local_judge": settings.is_local(settings.base_url()),
@@ -685,7 +697,7 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
     if j["hook_labels"]:
         lines.append(f"  {b}safety checks{r0}      {dim}" + " · ".join(f"{k} {fmt_k(v)}" for k, v in list(j["hook_labels"].items())[:5])
                      + f" · these went through jev but are not text the agent avoided reading{r0}")
-    lines.append(f"  {b}jev's own cost{r0}     ${j['paid']:.4f}{dim} on your jev backend, nothing from the Claude plan{r0}")
+    lines.append(f"  {b}jev's own cost{r0}     {own_cost(j, f'{r0}{dim}')}{r0}")
     if m and m["usd"] > 0:
         lines.append(f"  {dim}the session's spend is mostly the conversation itself re-sent every turn ({fmt_k(m['cache_read'])} cache-read tokens); "
                      f"jev only touches what it kept out of it{r0}")
@@ -705,4 +717,4 @@ def one_line(s: dict) -> str:
     caught = " · ".join(x for x in (f"guard asked {sf['asked']}×" + (f", you stopped {sf['stopped']}" if sf.get("stopped") else "") if sf["asked"] else "",
                                      f"{sf['unchecked']} unchecked" if sf.get("unchecked") else "",
                                      f"{sf['pages_flagged']} pages flagged" if sf["pages_flagged"] else "") if x)
-    return f"jev: {j['decisions']:,} decisions · {worth}" + (f" · {caught}" if caught else "") + f" · ${j['paid']:.4f} paid"
+    return f"jev: {j['decisions']:,} decisions · {worth}" + (f" · {caught}" if caught else "") + (f" · ${j['paid']:.4f} paid" if j.get("hosted", 1) else "")
