@@ -51,7 +51,7 @@ def dangerous(cmd: str) -> bool:
 
 
 def scratch_roots() -> list[str]:
-    roots = {"/tmp", "/private/tmp", os.path.realpath(tempfile.gettempdir()), tempfile.gettempdir().rstrip("/")}
+    roots = {"/tmp", "/private/tmp", os.path.realpath("/tmp"), os.path.realpath(tempfile.gettempdir()), tempfile.gettempdir().rstrip("/")}
     if os.environ.get("TMPDIR"):
         roots.add(os.environ["TMPDIR"].rstrip("/"))
         roots.add(os.path.realpath(os.environ["TMPDIR"]))
@@ -107,13 +107,14 @@ def _expand(word: str, env: dict) -> str | None:
 
 
 def _abs(path: str, cwd: str) -> str:
-    return os.path.normpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+    """Absolute and resolved: /var and /private/var are one place on macOS, and git answers with the resolved one."""
+    return os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
 
 
 def _git_root(cwd: str) -> str | None:
     try:
         out = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=3)
-        return out.stdout.strip() or None if out.returncode == 0 else None
+        return os.path.realpath(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
     except (OSError, subprocess.SubprocessError):
         return None
 
