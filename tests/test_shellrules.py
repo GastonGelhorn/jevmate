@@ -50,6 +50,17 @@ class Settle(unittest.TestCase):
         prose = "python3 - <<'EOF'\np='src/a.py'\ns=open(p).read()\ns=s.replace('x', '/// Runs a command, draining stdout')\nopen(p,'w').write(s)\nEOF"
         self.assertEqual(self.settle(prose), "project-edit", "a string with spaces is text, not a path")
 
+    def test_a_project_under_a_linked_folder(self):
+        if os.path.realpath("/tmp") == "/tmp":
+            self.skipTest("/tmp is not a link here")
+        repo = Path(tempfile.mkdtemp(prefix="jev-rules-", dir="/tmp"))  # /tmp -> /private/tmp: git answers with the resolved path
+        (repo / "a.txt").write_text("x = 1\n")
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run(git[:3] + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "a.txt"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "a"], check=True)
+        self.assertEqual(shellrules.settle("sed -i '' 's/1/2/' a.txt", str(repo)), "project-edit")
+
     def test_everything_else_goes_to_the_model(self):
         for cmd in ("rm -rf build", "git push --force origin main", "git push", "ssh host 'rm -f /tmp/x'", "git stash", "git branch -D old",
                     "env FOO=1 rm -rf x", "sort -o out.txt src/a.py", "echo x > ~/.bashrc", "echo $(whoami)", "cat `which jev`",
