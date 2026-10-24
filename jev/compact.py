@@ -101,7 +101,10 @@ def _line_start(f, at: int, step: int = 1 << 20) -> int:
 def _tail(path: Path, marker: bytes, block: int = 8 << 20) -> bytes:
     """The file from the last line holding `marker` (the latest compaction) to its end. The rest is history
     that compaction already replaced, so a transcript of a gigabyte is read from where it still matters."""
-    size = path.stat().st_size
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return b""
     with open(path, "rb") as f:
         end, carry = size, b""
         while end > 0:

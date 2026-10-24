@@ -877,6 +877,9 @@ def pre_compact() -> int:
         client = _client("hook:compact", "JEV_COMPACT_TIMEOUT", "60")
     except Exception as e:  # noqa: BLE001
         why = f"{type(e).__name__}: {str(e)[:120]}"
+    from . import settings
+    if client is not None and settings.is_local(client.base_url) and _opt("COMPACT_JUDGE", "JEV_COMPACT_JUDGE", "") != "on":
+        client = None  # on a model on this machine each question takes seconds: save and list, and let the compaction go
     try:
         events, _ = compact.load(Path(p["transcript_path"]))
         plan = compact.build(events, client=client, client_error=why, apply=True, tag=tag, **compact.options())

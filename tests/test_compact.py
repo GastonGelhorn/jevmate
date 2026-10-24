@@ -290,6 +290,25 @@ class Hooks(unittest.TestCase):
             code, out, _, _ = run(["hook", "session-start"], stdin=self.payload(hook_event_name="SessionStart", source="compact"))
             self.assertEqual(out, "", "the block is handed over once")
 
+    def test_on_a_local_model_the_results_are_saved_without_a_question(self):
+        settings.save_config({"base_url": "http://localhost:11434", "model": "tev1-32k"})
+        try:
+            with mock.patch.dict("os.environ", {"JEV_COMPACT_MODE": "on", "JEV_COMPACT_RECENT": "0"}):
+                code, out, err, t = run(["hook", "pre-compact"], stdin=self.payload(hook_event_name="PreCompact", trigger="auto"))
+        finally:
+            settings.save_config({})
+        self.assertEqual((code, out), (0, ""), err)
+        self.assertEqual(t.calls, [], "the compaction does not wait for a model on this machine")
+        row = [r for r in ledger.hook_rows() if r.get("hook") == "compact"][-1]
+        self.assertTrue(list(Path(row["dir"]).glob("*.txt")), "every large result is still saved")
+
+    def test_a_missing_transcript_is_nothing_to_save(self):
+        with mock.patch.dict("os.environ", {"JEV_COMPACT_MODE": "on"}):
+            code, out, err, _ = run(["hook", "pre-compact"], stdin=json.dumps({"session_id": "abcd1234-0000", "hook_event_name": "PreCompact",
+                                                                                "transcript_path": str(settings.HOME / "gone.jsonl")}))
+        self.assertEqual((code, out), (0, ""), err)
+        self.assertFalse(any(r.get("err") for r in ledger.hook_rows() if r.get("hook") == "compact"))
+
     def test_the_mod_judged_already(self):
         compact.save_state("session:abcd1234", {"restore": "x", "stats": {}}, None, by="mod")
         with mock.patch.dict("os.environ", {"JEV_COMPACT_MODE": "on"}):
