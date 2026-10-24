@@ -36,6 +36,9 @@ def register(sub) -> None:
     c.add_argument("--price-model", help=argparse_hidden())
     c.add_argument("--rules-only", action="store_true", help="no model call: what the rules alone settle")
     c.add_argument("--report", action="store_true", help="past compactions: what was saved, and how often a saved result was read again")
+    c.add_argument("--simulate", action="store_true", help="the last --days of Claude Code sessions replayed with compactions at smaller windows: what the context would have cost")
+    c.add_argument("--days", type=float, default=7, help="--simulate: how far back (default 7)")
+    c.add_argument("--windows", help="--simulate: windows to try, in tokens, comma-separated (default 967000,600000,400000,300000,200000)")
     c.add_argument("--keep-at", type=float, help=f"kept whole at or above this p (default {compact.KEEP_AT}; JEV_COMPACT_KEEP)")
     c.add_argument("--cut-at", type=float, help=f"cut to head and tail at or above this p, moved to disk below (default {compact.CUT_AT}; JEV_COMPACT_CUT)")
     c.add_argument("--recent", type=int, help=f"the latest results left as they are (default {compact.RECENT}; JEV_COMPACT_RECENT)")
@@ -155,6 +158,12 @@ def _report(args) -> int:
 
 
 def cmd_compact(args) -> int:
+    if args.simulate:
+        from .. import simulate
+        windows = tuple(int(w) for w in args.windows.split(",")) if args.windows else simulate.WINDOWS
+        s = simulate.simulate(days=args.days, windows=windows)
+        print(json.dumps(s, indent=2) if args.json else simulate.render(s))
+        return 0
     if args.report:
         return _report(args)
     opts = compact.options()

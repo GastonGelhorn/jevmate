@@ -86,5 +86,29 @@ class Report(unittest.TestCase):
         self.assertEqual(report.guard_waits([{"ts": "2026-10-20T10:00:01", "cmd": "hook:guard", "ms": 5000}], hooks), [640])
 
 
+class Simulate(unittest.TestCase):
+    def setUp(self):
+        self.home = fresh_home()
+
+    def test_a_smaller_window_compacts_more_and_reads_less(self):
+        from jev import simulate
+        path = self.home / "projects" / "-work-shop" / "s1.jsonl"
+        path.parent.mkdir(parents=True)
+        lines, ctx = [], 100_000
+        for i in range(60):  # a session growing 15K a request, to 985K
+            lines.append(assistant(f"m{i}", f"2026-10-20T10:{i:02d}:00.000Z", inp=5, cr=ctx - 15_000, cw=15_000))
+            ctx += 15_000
+        path.write_text("\n".join(lines) + "\n")
+        s = simulate.simulate(days=7, windows=(967_000, 400_000), now=datetime(2026, 10, 24, tzinfo=timezone.utc), root=self.home / "projects")
+        big, small = s["windows"]
+        self.assertEqual((s["sessions"], s["requests"]), (1, 60))
+        self.assertEqual(big["compactions"], 1)
+        self.assertGreater(small["compactions"], big["compactions"])
+        self.assertLess(small["cache_read"], big["cache_read"])
+        self.assertLess(small["usd"], big["usd"])
+        self.assertEqual(small["vs_largest"], round(small["usd"] - big["usd"], 2))
+        self.assertIn("400K", simulate.render(s))
+
+
 if __name__ == "__main__":
     unittest.main()
