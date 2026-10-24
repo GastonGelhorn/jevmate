@@ -177,8 +177,8 @@ def build(days: float = 7, now: datetime | None = None, root: Path = PROJECTS) -
     since = now - timedelta(days=days)
     main, subs = transcripts(since, root)
     start_local, end_local = _local(since), _local(now)
-    usage = [r for r in ledger.read_since(settings.USAGE_FILE, start_local) if r["ts"] < end_local]
-    hooks = [h for h in ledger.read_since(settings.HOOKS_LOG, start_local) if h["ts"] < end_local]
+    usage = [r for r in ledger.read_since(settings.USAGE_FILE, start_local) if r["ts"] <= end_local]  # to the second, this one included
+    hooks = [h for h in ledger.read_since(settings.HOOKS_LOG, start_local) if h["ts"] <= end_local]
     return {"from": start_local, "to": end_local, "days": days,
             "model": model_side(main, subs, _utc(since), _utc(now)), "jev": jev_side(usage, hooks)}
 
