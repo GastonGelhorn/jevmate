@@ -66,6 +66,14 @@ def register(sub) -> None:
                     help="a plan window's use, e.g. five_hour=23.5@2026-10-02T14:00:00Z (repeatable); the plugin's mod passes them on a subscription")
     se.set_defaults(fn=cmd_session)
 
+    rp = sub.add_parser("report", help="what Claude Code cost over a span of days, and what jev did in it",
+                        description="From the transcripts under ~/.claude/projects and jev's two ledgers: the model's cost at list price, the "
+                                    "size of the context each request read, the compactions, the guard's checks, questions, answers and "
+                                    "waits, and jev's requests by who made them. Run it before and after a change.")
+    rp.add_argument("--days", type=float, default=7, help="how far back (default 7)")
+    rp.add_argument("--json", action="store_true")
+    rp.set_defaults(fn=cmd_report)
+
     ins = sub.add_parser("inspect", help="read installed skills, plugins, agents and hook files for instructions aimed at an agent, and planted markers",
                          description="Two questions per instruction file somebody else wrote and your agent will obey: does it tell an agent to do "
                                      "something the person would not want (exfiltrate, run concealed commands, override the person, hide actions), and "
@@ -346,6 +354,13 @@ def cmd_inspect(args) -> int:
 
 
 # ---------------------------------------------------------------- session / watch
+
+def cmd_report(args) -> int:
+    from .. import report
+    r = report.build(days=args.days)
+    print(json.dumps(r, indent=2) if args.json else report.render(r))
+    return 0
+
 
 def cmd_session(args) -> int:
     cwd = os.path.realpath(args.cwd or os.getcwd())

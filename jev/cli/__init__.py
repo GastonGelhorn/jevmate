@@ -37,6 +37,7 @@ a change, a red suite, a stream
 claude code
   jev session                   this session: what went through jev, what that would have cost to read, what it saved
   jev watch                     the same, live, for the desktop app's Terminal panel   ·   /jevmate:stats in the chat
+  jev report [--days 7]         what Claude Code cost over those days (context size, compactions) and what jev did in them
   jev hooks install|status      a guard on Bash (asks, never allows) and an injection screen on WebFetch (plain CLI installs; the plugin wires its own)
   jev statusline install        the session's cost next to what jev decided, under the prompt (terminal CLI)
   jev inspect                   installed skills, plugins and agents read for instructions aimed at an agent (also at session start)
@@ -60,6 +61,7 @@ COMMANDS = {
     "schema": "admin", "usage": "admin", "version": "admin",
     "setup": "setup",
     "hooks": "claude", "hook": "claude", "statusline": "claude", "watch": "claude", "session": "claude", "inspect": "claude",
+    "report": "claude",
     "q": "library", "mcp": "library",
     "compact": "compact",
     "guide": "docs", "examples": "docs", "docs": "docs",
