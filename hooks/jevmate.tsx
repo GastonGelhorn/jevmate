@@ -49,7 +49,17 @@ const CACHE_LIFE_MS = 60 * 60_000 // the longest prompt cache lifetime: a reques
 const AUTO_IDLE_MS = 55 * 60_000 // idle this long, jev compacts while the cache still holds the conversation
 const SHIFT_BAR = 0.85 // how sure jev must be that a prompt leaves the earlier work behind
 
-type Safety = { asked: number; pages_flagged: number; files_flagged: number; triaged: number; claims: number; checks: number }
+type Safety = {
+  asked: number
+  stopped?: number
+  allowed?: number
+  unchecked?: number
+  pages_flagged: number
+  files_flagged: number
+  triaged: number
+  claims: number
+  checks: number
+}
 type Compaction = {
   runs: number
   judged: number
@@ -340,7 +350,8 @@ function caught(j: JevSide): Piece[][] {
   const s = j.safety
   const out: Piece[][] = []
   const asked = s?.asked ?? j.asked
-  if (asked) out.push([{ text: `guard asked ${asked}×`, color: WARN }])
+  if (asked) out.push([{ text: `guard asked ${asked}×`, color: WARN }, ...(s?.stopped ? [{ text: `, you stopped ${s.stopped}`, dim: true }] : [])])
+  if (s?.unchecked) out.push([{ text: plural(s.unchecked, 'command'), color: WARN }, { text: ' unchecked', dim: true }])
   if (s?.pages_flagged) out.push([{ text: plural(s.pages_flagged, 'page'), color: WARN }, { text: ' flagged', dim: true }])
   if (s?.files_flagged) out.push([{ text: plural(s.files_flagged, 'skill file'), color: BAD }, { text: ' flagged', dim: true }])
   if (s?.triaged) out.push([{ text: plural(s.triaged, 'red run'), color: INFO }, { text: ' sorted', dim: true }])
@@ -1183,10 +1194,12 @@ export const register: Register = (on, options) => {
       // Refuse first: a dialog that resolves on its own (the person away from the keyboard) must not run it.
       answer = await $.ui.ask(question(command, j), { header: 'jev guard', options: ['Refuse', 'Run it'] })
     } catch {
+      void note($, 'guard-answer', { answer: 'dismissed', p: j.p ?? null, cmd: command })
       return { decision: 'deny', reason: 'jev guard: the question was dismissed; confirm with the person before running this command' }
     } finally {
       flagged.delete(command)
     }
+    void note($, 'guard-answer', { answer: answer === 'Run it' ? 'run' : 'refuse', p: j.p ?? null, cmd: command })
     if (answer === 'Run it') return decided
     return { decision: 'deny', reason: 'jev guard: the person declined this command. Ask before trying a different approach.' }
   }).catch(async ($, e, next) => {

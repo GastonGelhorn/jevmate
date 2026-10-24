@@ -884,7 +884,8 @@ def pre_compact() -> int:
 
 # ---------------------------------------------------------------- the mod's channel
 
-RECORDABLE = {"evidence", "effort", "effort-cache", "subagent", "compact", "compact-cache", "compact-reread", "compact-auto"}
+RECORDABLE = {"evidence", "effort", "effort-cache", "subagent", "compact", "compact-cache", "compact-reread", "compact-auto",
+              "guard-answer"}
 
 
 def _usage_cost(u: dict, model: str) -> float:
@@ -898,13 +899,16 @@ def record() -> int:
     """One row in hooks.log on the mod's behalf: an evidence line it showed, a turn it ran at low effort,
     what lowering effort did to the prompt cache, a subagent it ran on a cheaper model (whose saving is
     priced here, from the subagent turn's own usage, so the price table stays in one place), a compaction
-    it started (the summary's own request priced, and whether it found the prompt cache expired)."""
+    it started (the summary's own request priced, and whether it found the prompt cache expired), what the
+    person answered when the guard asked about a command."""
     p = _payload() or {}
     hook = str(p.get("hook") or "")
     if hook not in RECORDABLE:
         return 0
     from . import ledger
     row = {k: v for k, v in p.items() if k not in ("hook", "session_id") and isinstance(v, (str, int, float, bool))}
+    if isinstance(row.get("cmd"), str):
+        row["cmd"] = mask_secrets(row["cmd"])[:200]
     u = p.get("usage") if isinstance(p.get("usage"), dict) else {}
     if hook == "subagent":
         parent, model = str(p.get("parent") or ""), str(p.get("model") or "")

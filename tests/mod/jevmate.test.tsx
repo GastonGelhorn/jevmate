@@ -431,7 +431,8 @@ describe('the guard where no prompt can appear', () => {
   const RISKY = { decision: 'ask', why: null, p: 0.96, outside: 0.91, requested: 0.44, ask_at: 0.6, deny_at: 0.9, reason: 'jev guard: p(destructive)=0.96 — git push --force origin main' }
 
   test('asks in plain words, and refuses when the person refuses', async ($, on) => {
-    world(on, { ...fresh(), judge: RISKY })
+    const w: World = { ...fresh(), judge: RISKY }
+    const clock = world(on, w)
     let asked = ''
     on('tool.check', () => ({ decision: 'allow' as const }))
     on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
@@ -445,6 +446,10 @@ describe('the guard where no prompt can appear', () => {
     expect(asked).toContain('looks destructive (p 0.96)')
     expect(asked).toContain('reaches outside the project (p 0.91)')
     expect(asked).toContain('does not look like part of what you asked (p 0.44)')
+    await clock.settle() // recorded in the background: the command does not wait for it
+    const answer = w.stdins.find(x => x.includes('"hook":"guard-answer"')) ?? ''
+    expect(answer).toContain('"answer":"refuse"')
+    expect(answer).toContain('"p":0.96')
   })
 
   test('lets it through when the person says run it, and never answers allow on its own', async ($, on) => {

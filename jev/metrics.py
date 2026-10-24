@@ -316,12 +316,18 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
     would = once + reread
     mine = [h for h in hooks if h["ts"] >= since and (not tag or h.get("agent") == tag)]
     kinds = lambda name: [h for h in mine if h.get("hook") == name]  # noqa: E731
+    answers = kinds("guard-answer")
     safety = {"asked": asked,
+              "stopped": sum(1 for h in answers if h.get("answer") in ("refuse", "dismissed")),
+              "allowed": sum(1 for h in answers if h.get("answer") == "run"),
+              "unchecked": sum(1 for h in kinds("guard") if "err" in h),
               "pages_flagged": sum(1 for h in kinds("screen") if h.get("warned")),
               "files_flagged": sum(int(h.get("new_flags") or 0) for h in kinds("inspect")),
               "triaged": sum(1 for h in kinds("triage") if h.get("noted")),
               "claims": sum(1 for h in kinds("honesty") if h.get("blocked")) + len(kinds("evidence")),
-              "checks": sum(1 for h in mine if h.get("hook") in ("guard", "screen", "inspect", "honesty") and "err" not in h)}
+              # a model's verdict on a command, a page, a file or a claim (the mod's own row repeats a guard verdict)
+              "checks": sum(1 for h in mine if (h.get("hook") == "guard" and "p" in h and h.get("via") != "mod")
+                            or (h.get("hook") in ("screen", "inspect", "honesty") and "err" not in h))}
     subagents = kinds("subagent")
     verdicts = [h for h in hooks if h.get("hook") == "effort-cache" and h.get("verdict")]
     routing = {"subagents": len(subagents), "subagent_saved": sum(float(h.get("saved_usd") or 0) for h in subagents),
@@ -623,7 +629,8 @@ def render_session(s: dict, color: bool = True, jev_only: bool = False, title: s
         models = ", ".join(f"{n_} on {k_.replace('claude-', '')}" for k_, n_ in sub["models"].items())
         lines.append(f"  {b}subagents{r0}          {sub['count']} ran ({models}) for ~${sub['cost']:.2f}"
                      + (f" · {y}~${sub['could_save']:.2f} less on Sonnet{r0}{dim}: turn on subagent_model{r0}" if sub["could_save"] >= 0.01 else f"{dim} · nothing to gain from a cheaper model{r0}"))
-    caught = [f"guard asked {sf['asked']}×"] if sf["asked"] else []
+    caught = [f"guard asked {sf['asked']}×" + (f", you stopped {sf['stopped']}" if sf.get("stopped") else "")] if sf["asked"] else []
+    caught += [f"{sf['unchecked']} command(s) unchecked"] if sf.get("unchecked") else []
     caught += [f"{sf['pages_flagged']} fetched page(s) flagged"] if sf["pages_flagged"] else []
     caught += [f"{sf['files_flagged']} instruction file(s) flagged"] if sf["files_flagged"] else []
     caught += [f"{sf['triaged']} red run(s) sorted"] if sf["triaged"] else []
@@ -652,5 +659,7 @@ def one_line(s: dict) -> str:
         return "jev: nothing decided yet this session"
     sf = j["safety"]
     worth = plan_line(view) if view else (f"~${j['saved_total']:.2f} saved" if j["saved_total"] >= MONEY_FLOOR else f"{fmt_k(j['kept_out'])} tokens kept out")
-    caught = " · ".join(x for x in (f"guard asked {sf['asked']}×" if sf["asked"] else "", f"{sf['pages_flagged']} pages flagged" if sf["pages_flagged"] else "") if x)
+    caught = " · ".join(x for x in (f"guard asked {sf['asked']}×" + (f", you stopped {sf['stopped']}" if sf.get("stopped") else "") if sf["asked"] else "",
+                                     f"{sf['unchecked']} unchecked" if sf.get("unchecked") else "",
+                                     f"{sf['pages_flagged']} pages flagged" if sf["pages_flagged"] else "") if x)
     return f"jev: {j['decisions']:,} decisions · {worth}" + (f" · {caught}" if caught else "") + f" · ${j['paid']:.4f} paid"

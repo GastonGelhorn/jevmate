@@ -174,6 +174,8 @@ class SafetyAndRouting(unittest.TestCase):
         try:
             ledger.log_hook("guard", {"cmd": "rm -rf x", "p": 0.9, "decision": "ask"})
             ledger.log_hook("guard", {"cmd": "ls", "p": 0.1, "decision": "-"})
+            ledger.log_hook("guard", {"cmd": "git push", "err": "NetworkError"})
+            ledger.log_hook("guard-answer", {"answer": "refuse", "p": 0.9, "cmd": "rm -rf x"})
             ledger.log_hook("screen", {"src": "https://x", "p": 0.8, "warned": True})
             ledger.log_hook("screen", {"src": "https://y", "p": 0.1, "warned": False})
             ledger.log_hook("inspect", {"files": 9, "sent": 2, "flagged": 1, "new_flags": 1})
@@ -185,12 +187,15 @@ class SafetyAndRouting(unittest.TestCase):
         finally:
             os.environ.pop("JEV_AGENT", None)
         j = metrics.session_summary(str(self.home), "abcdef12", None)["jev"]
-        self.assertEqual(j["safety"], {"asked": 1, "pages_flagged": 1, "files_flagged": 1, "triaged": 1, "claims": 1, "checks": 5})
+        self.assertEqual(j["safety"], {"asked": 1, "stopped": 1, "allowed": 0, "unchecked": 1, "pages_flagged": 1, "files_flagged": 1,
+                                       "triaged": 1, "claims": 1, "checks": 5})
         self.assertEqual(j["routing"]["subagents"], 1)
         self.assertAlmostEqual(j["saved_total"], j["saved"] + 4.0)
         self.assertEqual((j["routing"]["effort_turns"], j["routing"]["effort_cache"]), (1, "keeps"))
         text = metrics.render_session(metrics.session_summary(str(self.home), "abcdef12", None), color=False)
         self.assertIn("1 fetched page(s) flagged", text)
+        self.assertIn("guard asked 1×, you stopped 1", text)
+        self.assertIn("1 command(s) unchecked", text)
         self.assertIn("1 ran on a cheaper model", text)
         self.assertIn("the prompt cache survives it", text)
         self.assertIn("nothing from the Claude plan", text)
