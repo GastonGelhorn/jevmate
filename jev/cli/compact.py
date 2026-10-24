@@ -36,6 +36,8 @@ def register(sub) -> None:
     c.add_argument("--price-model", help=argparse_hidden())
     c.add_argument("--rules-only", action="store_true", help="no model call: what the rules alone settle")
     c.add_argument("--report", action="store_true", help="past compactions: what was saved, and how often a saved result was read again")
+    c.add_argument("--window", nargs="?", const="show", metavar="N|off",
+                   help="Claude Code's auto-compact window: show it, set it (400K, 300000…) or turn jev's off; jev keeps it in Claude Code's settings")
     c.add_argument("--simulate", action="store_true", help="the last --days of Claude Code sessions replayed with compactions at smaller windows: what the context would have cost")
     c.add_argument("--days", type=float, default=7, help="--simulate: how far back (default 7)")
     c.add_argument("--windows", help="--simulate: windows to try, in tokens, comma-separated (default 967000,600000,400000,300000,200000)")
@@ -158,6 +160,22 @@ def _report(args) -> int:
 
 
 def cmd_compact(args) -> int:
+    if args.window:
+        from .. import settings, window
+        if args.window != "show":
+            want = window.parse(args.window)
+            settings.save_config({**settings.config(), "compact_window": want if want is not None else "off"})
+            done = window.apply()
+        else:
+            done = None
+        have, whose = window.current()
+        out = {"window": have, "whose": whose, "wanted": window.wanted(), "settings": str(window.settings_path()), "change": done}
+        if args.json:
+            print(json.dumps(out, indent=2))
+        else:
+            now = f"{have:,} tokens ({'set by jev' if whose == 'jev' else 'your own setting: jev leaves it'})" if have else "Claude Code's default (the model's window)"
+            print(f"auto-compact window: {now}" + (f" · {done}" if done else "") + f"\n  {out['settings']} · `jev compact --simulate` prices other windows")
+        return 0
     if args.simulate:
         from .. import simulate
         windows = tuple(int(w) for w in args.windows.split(",")) if args.windows else simulate.WINDOWS

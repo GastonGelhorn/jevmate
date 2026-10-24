@@ -120,6 +120,18 @@
       "description": "on: command output above ~4,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
       "default": "on"
     },
+    "compact_window": {
+      "type": "string",
+      "title": "Context size at which Claude Code compacts",
+      "description": "Every request re-reads the whole conversation, so this is most of what a long session costs. jev writes it as autoCompactWindow in Claude Code's user settings unless you set your own. On a week of coding sessions, 400K cost 42% less to carry than compacting near 1M, at a few compactions a day; Claude Code computes the summary ahead of time. off: jev leaves the setting alone.",
+      "default": "400K",
+      "options": [
+        "400K",
+        "600K",
+        "300K",
+        "off"
+      ]
+    },
     "compact_mode": {
       "type": "string",
       "title": "Compaction that keeps what the work needs (opt-in)",

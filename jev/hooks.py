@@ -790,6 +790,12 @@ def session_start() -> int:
     from . import ledger, settings
     if sid:
         ledger.bind_process(sid)
+    if _host(p) == "claude":
+        try:
+            from . import window
+            window.apply()  # Claude Code compacts at jev's window unless the person set their own
+        except Exception:  # noqa: BLE001  never let a settings file stop a session from starting
+            pass
     env_file = os.environ.get("CLAUDE_ENV_FILE")
     if env_file and sid:
         line = f'export JEV_SESSION="session:{sid[:8]}"\n'

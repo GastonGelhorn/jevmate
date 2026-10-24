@@ -15,6 +15,9 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault("TYPESAFE_API_KEY", "test-key-0000000000000000")
 # The mod exports this in the session it runs in, so a suite run from there would never see bypass deny.
 os.environ.pop("JEV_GUARD_MOD", None)
+for _name in ("JEV_COMPACT_WINDOW", "CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW"):
+    os.environ.pop(_name, None)
+os.environ["JEV_CLAUDE_SETTINGS"] = os.path.join(tempfile.gettempdir(), "jev-test-claude-settings.json")
 
 # Fake OpenRouter-shaped keys, assembled at run time so that no file in the repo holds a key-shaped literal.
 _OR = "sk-or-" + "v1-"
@@ -28,6 +31,7 @@ from jev import settings  # noqa: E402
 def fresh_home() -> Path:
     home = Path(tempfile.mkdtemp(prefix="jev-test-"))
     settings.set_home(home)
+    os.environ["JEV_CLAUDE_SETTINGS"] = str(home / "claude-settings.json")  # never the person's own Claude Code settings
     settings.RUNTIME.dry_run = False
     settings.RUNTIME.cache = True
     return home

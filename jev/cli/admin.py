@@ -32,6 +32,8 @@ CONFIG_KEYS = {
     "max_questions": ("max_questions", int, "questions per request; more go in batches (default 1 on Ollama, which reads the whole request again for each; no limit elsewhere)"),
     "parallel": ("parallel", int, "batches in flight at once (default 4 on Ollama, 1 elsewhere)"),
     "local_seconds_per_question": ("local_seconds_per_question", float, f"a local model's time per question; a call that would take longer than its timeout is skipped (default {settings.LOCAL_SECONDS_PER_QUESTION:g})"),
+    "compact_window": ("compact_window", str, "the context size at which Claude Code compacts: 400K (default), a number of tokens, or off; "
+                       "jev writes it to Claude Code's settings unless you set your own (`jev compact --window` shows it)"),
     "compact": ("compact_mode", str, "on | auto | off: judge the large tool results before Claude Code or Codex compacts; auto also lets the plugin's mod start one in Claude Code (the plugin's compact_mode wins)"),
 }
 

@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import pathlib
 import unittest
 from unittest import mock
 
@@ -273,6 +274,8 @@ class Commands(unittest.TestCase):
         self.assertEqual(settings.config()["base_url"], "https://openrouter.ai/api")
         marker = json.loads((settings.SESSIONS_DIR / "deadbeef-1234.json").read_text())
         self.assertEqual(marker["transcript"], str(home / "t.jsonl"))
+        claude = json.loads(pathlib.Path(os.environ["JEV_CLAUDE_SETTINGS"]).read_text())
+        self.assertEqual(claude["autoCompactWindow"], 400_000, "Claude Code compacts at jev's window")
 
     def test_usage_by_session(self):
         with mock.patch.dict("os.environ", {"JEV_SESSION": "session:abc12345"}):
