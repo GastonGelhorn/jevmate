@@ -245,6 +245,18 @@ describe('when Jev cannot judge, and a session where only compaction ran', () =>
     await pane.redraw()
     expect((await pane.find({ text: /^\s*compaction/ }))?.text ?? '').toContain('1 compaction judged · 1 result moved to disk')
   })
+
+  test("compactions at jev's window are counted and priced", async ($, on) => {
+    const at = { ...QUIET, jev: { ...QUIET.jev, compact: { ...QUIET.jev.compact, runs: 0, window: { runs: 2, requests: 140, saved_usd: 3.4 } } } }
+    world(on, { ...fresh(), summary: at })
+    await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+    const { text } = await bandText($)
+    expect(text).toContain('2 compactions (2 by jev, ~$3.40)')
+    await $.command.run({ command: 'jevmate', args: '' })
+    const pane = await $.ui.mount({ plugin: 'jevmate', surface: 'terminal', component: 'Pane', requestId: 'jev', props: PANE_PROPS })
+    await pane.redraw()
+    expect((await pane.find({ text: /^\s*compaction/ }))?.text ?? '').toContain("2 compactions at jev's window: ~$3.40 saved over 140 requests since")
+  })
 })
 
 describe('the pane', () => {

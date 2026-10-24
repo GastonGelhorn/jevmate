@@ -48,6 +48,8 @@ CONTEXT_SIZE = {"claude-fable": 1_000_000, "claude-mythos": 1_000_000, "claude-o
                 "claude-opus-4-7": 1_000_000, "claude-opus-4-8": 1_000_000, "claude-sonnet-5": 1_000_000, "claude-sonnet-4-6": 1_000_000}
 DEFAULT_PRICE = (5.0, 25.0, 0.5, 6.25)
 COMPACT_AT = 0.9  # Claude Code compacts before the window is full; a lower bar means a smaller, safer estimate
+AUTOCOMPACT_BUFFER = 33_000  # what Claude Code keeps free for the summary: it compacts at the window less this
+SUMMARY_TOKENS = 30_000      # the summary's size when the compaction did not record it
 
 # Ledger labels that are not the agent's reading: maintenance commands and every hook.
 OVERHEAD_LABELS = {"inspect", "tune", "label", "doctor", "models", "cost", "compact"}
@@ -276,6 +278,45 @@ def auto_compactions(rows: list[dict], transcript: Transcript | None) -> dict:
     return out
 
 
+def window_compactions(transcript: Transcript | None, whose: str | None = None) -> dict:
+    """Claude Code's own compactions at the window jev keeps, below the model's: what each saved. Every later request
+    read the smaller context instead of the larger, until the larger would itself have reached the model's window and
+    been compacted; less what the compaction cost (the summarizer reading the context and writing the summary, and
+    the new context written to the cache where the old one would have been read from it)."""
+    out = {"runs": 0, "requests": 0, "saved_usd": 0.0}
+    if transcript is None:
+        return out
+    if whose is None:
+        from .window import current
+        whose = current()[1]
+    if whose != "jev":
+        return out
+    marks = transcript.compaction_meta
+    for i, c in enumerate(marks):
+        if c.get("trigger") != "auto" or not c.get("pre"):
+            continue
+        nxt = marks[i + 1]["ts"] if i + 1 < len(marks) else None
+        after = [t for t in transcript.turns if t[0] > c["ts"] and (nxt is None or t[0] < nxt)]
+        if not after:
+            continue
+        first_ctx, model = after[0][2], after[0][1]
+        limit = context_size(model) - AUTOCOMPACT_BUFFER
+        freed = c["pre"] - first_ctx
+        if c["pre"] >= limit * 0.97 or freed <= 0:
+            continue  # compacted at the model's own limit, where it would have happened anyway
+        _, p_out, p_cr, p_cw = price_for(model)
+        net = -(c["pre"] * p_cr + (c.get("post") or SUMMARY_TOKENS) * p_out + first_ctx * (p_cw - p_cr)) / 1e6
+        for _, m, ctx in after:
+            if ctx + freed >= limit:
+                break
+            net += freed * price_for(m)[2] / 1e6
+            out["requests"] += 1
+        out["runs"] += 1
+        out["saved_usd"] += net
+    out["saved_usd"] = round(out["saved_usd"], 6)
+    return out
+
+
 def _top(counts: dict[str, int]) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
 
@@ -340,12 +381,13 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
                "rereads": len(kinds("compact-reread")), "pruned": sum(1 for h in comps if h.get("pruned")),
                "saved_usd": sum(float(h.get("saved_usd") or 0) for h in comps)}
     compact["auto"] = auto_compactions(kinds("compact-auto"), transcript)
+    compact["window"] = window_compactions(transcript)
     saved = would - paid_reads
     from .hooks import api_status
     return {"api": api_status(tag), "requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
-            "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"] + compact["auto"]["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
+            "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"] + compact["auto"]["saved_usd"] + compact["window"]["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
             "pricing": pricing, "agent_price": flat if flat is not None else settings.agent_price(), "compactions": len(transcript.compactions) if transcript else 0,
             "labels": _top(labels), "hook_labels": _top(hook_labels)}
 

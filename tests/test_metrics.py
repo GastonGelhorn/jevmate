@@ -111,6 +111,36 @@ def ts(minutes):
     return (datetime(2026, 9, 25, 10, 0, tzinfo=timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+class WindowCompactions(unittest.TestCase):
+    def setUp(self):
+        self.home = fresh_home()
+
+    def transcript(self, pre, trigger="auto"):
+        p = self.home / "w.jsonl"
+        lines = [turn("m0", "claude-opus-5-5", "2026-10-20T10:00:00.000Z", cr=pre - 10_000, cw=10_000),
+                 json.dumps({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-10-20T10:01:00.000Z",
+                             "compactMetadata": {"trigger": trigger, "preTokens": pre, "postTokens": 30_000}})]
+        lines += [turn(f"m{i}", "claude-opus-5-5", f"2026-10-20T{10 + (i + 1) // 60}:{(i + 1) % 60:02d}:30.000Z", inp=0, cr=100_000 + 10_000 * i,
+                       cw=10_000) for i in range(1, 61)]
+        p.write_text("\n".join(lines) + "\n")
+        tr = metrics.Transcript(p)
+        tr.refresh()
+        return tr
+
+    def test_a_compaction_at_jev_s_window_is_priced_against_carrying_the_larger_context(self):
+        w = metrics.window_compactions(self.transcript(367_000), whose="jev")
+        self.assertEqual((w["runs"], w["requests"]), (1, 60))
+        freed = 367_000 - 120_000  # the first request after it read 120K
+        cost = (367_000 * 0.20 + 30_000 * 20.0 + 120_000 * (5.0 - 0.20)) / 1e6
+        self.assertAlmostEqual(w["saved_usd"], round(60 * freed * 0.20 / 1e6 - cost, 6))
+        self.assertGreater(w["saved_usd"], 0, "sixty requests on the smaller context pay for the compaction")
+
+    def test_only_jev_s_window_and_only_below_the_model_s_limit(self):
+        self.assertEqual(metrics.window_compactions(self.transcript(367_000), whose="yours")["runs"], 0)
+        self.assertEqual(metrics.window_compactions(self.transcript(967_000), whose="jev")["runs"], 0)
+        self.assertEqual(metrics.window_compactions(self.transcript(367_000, trigger="manual"), whose="jev")["runs"], 0)
+
+
 class Prices(unittest.TestCase):
     def setUp(self):
         fresh_home()

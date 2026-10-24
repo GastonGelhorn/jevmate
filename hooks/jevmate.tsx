@@ -73,6 +73,7 @@ type Compaction = {
   saved_usd: number
   // the ones this module started itself (compact_mode auto), and what they saved so far, net of the summary's cost
   auto?: { runs: number; idle: number; shift: number; requests: number; saved_usd: number }
+  window?: { runs: number; requests: number; saved_usd: number }
 }
 // What `jev compact --messages` hands back for a result it moves or cuts, or a file write it shortens.
 type Change = { id: string; kind: 'result' | 'input'; text?: string; input?: Record<string, unknown> }
@@ -178,6 +179,11 @@ const autoLine = (au: Compaction['auto']) => {
   const why = [au.idle ? `${au.idle} while idle` : '', au.shift ? `${au.shift} as other work began` : ''].filter(Boolean).join(', ')
   const net = au.saved_usd >= 0 ? `~${money(au.saved_usd)} saved` : `${money(-au.saved_usd)} spent so far`
   return ` · ${au.runs} started by jev (${why}): ${net} over ${plural(au.requests, 'request')} since`
+}
+const windowLine = (wi: Compaction['window']) => {
+  if (!wi?.runs) return ''
+  const net = wi.saved_usd >= 0 ? `~${money(wi.saved_usd)} saved` : `${money(-wi.saved_usd)} spent so far`
+  return ` · ${plural(wi.runs, 'compaction')} at jev's window: ${net} over ${plural(wi.requests, 'request')} since`
 }
 const clock = (epochSeconds: number) => {
   const d = new Date(epochSeconds * 1000)
@@ -321,7 +327,7 @@ function spent(): { usd: number; estimated: boolean } | null {
 }
 
 function isIdle(j: JevSide | undefined): boolean {
-  return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0) && !(j.compact?.runs ?? 0) && !j.api)
+  return !j || (!j.requests && !j.asked && !j.trimmed && !(j.routing?.subagents ?? 0) && !(j.compact?.runs ?? 0) && !(j.compact?.window?.runs ?? 0) && !(j.compact?.auto?.runs ?? 0) && !j.api)
 }
 
 // Jev failing when a hook last asked it: the band says so for as long as it lasts, the reason in two words.
@@ -391,15 +397,18 @@ function segments(): Segment[] {
       out.push({ key: 'subagents', rank: 5, pieces: [{ text: plural(j.routing.subagents, 'subagent'), color: INFO }, { text: ' on a cheaper model', dim: true }] })
     }
     caught(j).forEach((pieces, i) => out.push({ key: `caught${i}`, rank: 7 - i, pieces }))
-    if (j.compact?.runs) {
+    if (j.compact?.runs || j.compact?.window?.runs) {
       // The count stays ahead of the safety figures; how many results it saved is the first detail to go.
       const au = j.compact.auto
+      const wi = j.compact.window
+      const ours = (au?.runs ?? 0) + (wi?.runs ?? 0)
+      const net = (au?.saved_usd ?? 0) + (wi?.saved_usd ?? 0)
       out.push({
         key: 'compact',
         rank: 7.5,
         pieces: [
-          { text: plural(j.compact.runs, 'compaction'), color: INFO },
-          ...(au?.runs ? [{ text: ` (${au.runs} by jev, ${au.saved_usd >= 0 ? `~${money(au.saved_usd)}` : `-${money(-au.saved_usd)} so far`})`, dim: true } as Piece] : []),
+          { text: plural(Math.max(j.compact.runs, ours), 'compaction'), color: INFO },
+          ...(ours ? [{ text: ` (${ours} by jev, ${net >= 0 ? `~${money(net)}` : `-${money(-net)} so far`})`, dim: true } as Piece] : []),
         ],
       })
       if (j.compact.judged) {
@@ -980,9 +989,9 @@ export const register: Register = (on, options) => {
         ])}
         {row('  compaction', [
           { text: compactOn ? cfg.compactMode : 'off', bold: true, ...(compactOn ? { color: GOOD } : {}) },
-          co && co.runs
+          co && (co.runs || co.window?.runs)
             ? {
-                text: ` · ${plural(co.runs, 'compaction')} judged · ${plural(co.moved, 'result')} moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}${autoLine(co.auto)}`,
+                text: `${co.runs ? ` · ${plural(co.runs, 'compaction')} judged · ${plural(co.moved, 'result')} moved to disk, ${n(co.cut)} cut · read again later: ${co.rereads}` : ''}${co.saved_usd ? ` · ~${money(co.saved_usd)} off the summary` : ''}${autoLine(co.auto)}${windowLine(co.window)}`,
                 dim: true,
               }
             : {
