@@ -64,9 +64,10 @@ def _parent(pid: int) -> int | None:
         return None
 
 
-def bind_process(session_id: str, depth: int = 3) -> None:
-    """Tie the session to the processes above this hook (the shell it ran in, Claude Code), so the MCP server
-    Claude Code started for it finds the session by its own parent and tags its calls."""
+def bind_process(session_id: str, cwd: str | None = None, depth: int = 3) -> None:
+    """Tie the session and its working folder to the processes above this hook (the shell it ran in, Claude
+    Code), so the MCP server Claude Code started for it finds both by its own parent: it tags its calls with
+    the session and reads files where the session works, a worktree included."""
     folder = settings.SESSIONS_DIR / "by-pid"
     try:
         folder.mkdir(parents=True, exist_ok=True)
@@ -81,18 +82,30 @@ def bind_process(session_id: str, depth: int = 3) -> None:
         if not pid or pid <= 1:
             break
         try:
-            (folder / f"{pid}.json").write_text(json.dumps({"session": session_id}))
+            (folder / f"{pid}.json").write_text(json.dumps({"session": session_id, **({"cwd": cwd} if cwd else {})}))
         except OSError:
             return
         pid = _parent(pid)
 
 
+def _binding() -> dict:
+    try:
+        bound = json.loads((settings.SESSIONS_DIR / "by-pid" / f"{os.getppid()}.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return bound if isinstance(bound, dict) else {}
+
+
 def process_session() -> str | None:
     """The session of the Claude Code process that started this one, as its SessionStart hook bound it."""
-    try:
-        return json.loads((settings.SESSIONS_DIR / "by-pid" / f"{os.getppid()}.json").read_text()).get("session") or None
-    except (OSError, ValueError, AttributeError):
-        return None
+    return _binding().get("session") or None
+
+
+def process_cwd() -> str | None:
+    """Where that session works. Claude Code starts its MCP servers in the project's main checkout, also for
+    a session working in a worktree of it."""
+    cwd = _binding().get("cwd")
+    return cwd if isinstance(cwd, str) and os.path.isdir(cwd) else None
 
 
 def session_marker(session_id: str) -> dict | None:

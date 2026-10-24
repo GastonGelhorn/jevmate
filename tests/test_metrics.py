@@ -96,8 +96,14 @@ class SessionSummary(unittest.TestCase):
         with mock.patch("os.getppid", return_value=4242), mock.patch("jev.ledger._parent", return_value=None):
             ledger.bind_process("abcdef12-0000")
             self.assertEqual(ledger.process_session(), "abcdef12-0000")
+            self.assertIsNone(ledger.process_cwd())
+            ledger.bind_process("abcdef12-0000", str(self.home))
+            self.assertEqual(ledger.process_cwd(), str(self.home))
+            ledger.bind_process("abcdef12-0000", str(self.home / "gone"))
+            self.assertIsNone(ledger.process_cwd(), "a folder that is not there any more")
         with mock.patch("os.getppid", return_value=4343):
             self.assertIsNone(ledger.process_session())
+            self.assertIsNone(ledger.process_cwd())
 
     def test_no_transcript_no_rows(self):
         s = metrics.session_summary(str(self.home), None, None)

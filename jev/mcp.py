@@ -77,7 +77,11 @@ def _client(label: str, model: str | None = None):
 
 
 def _project(path: str | None = None) -> str:
-    return os.path.realpath(path or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+    """A path the agent gave, from where its session works: the folder SessionStart bound to this server's
+    Claude Code process, which is the worktree when the session has one, else the project."""
+    from . import ledger
+    base = ledger.process_cwd() or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    return os.path.realpath(os.path.join(base, path) if path else base)
 
 
 def _band(v):

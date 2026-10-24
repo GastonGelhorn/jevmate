@@ -64,6 +64,24 @@ class Server(unittest.TestCase):
         mcp.serve(io.StringIO("{not json\n"), out)
         self.assertEqual(json.loads(out.getvalue())["error"]["code"], -32700)
 
+    def test_paths_are_read_where_the_session_works(self):
+        import os
+        from jev import ledger
+        main, worktree = settings.HOME / "shop", settings.HOME / "shop" / ".claude" / "worktrees" / "w1"
+        for root, word in ((main, "no"), (worktree, "yes")):
+            (root / "docs").mkdir(parents=True)
+            (root / "docs" / "pricing.md").write_text(f"{word} vat\n")
+        call = [{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "sift", "arguments": {"query": "vat?", "paths": ["docs"]}}}]
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(main)}), mock.patch("os.getppid", return_value=4242), \
+                mock.patch("jev.ledger._parent", return_value=None):
+            replies, _ = rpc(call)
+            self.assertIn(str(main.resolve()), json.dumps(replies[0]["result"]["structuredContent"]), "unbound: the project")
+            ledger.bind_process("abcdef12-0000", str(worktree))
+            replies, _ = rpc(call)
+        found = json.dumps(replies[0]["result"]["structuredContent"])
+        self.assertIn(str(worktree.resolve()), found)
+        self.assertNotIn('shop/docs', found)
+
     def test_session_tool(self):
         replies, _ = rpc([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session", "arguments": {"cwd": str(settings.HOME)}}}])
         r = replies[0]["result"]["structuredContent"]

@@ -825,7 +825,7 @@ def session_start() -> int:
     sid = str(p.get("session_id") or "")
     from . import ledger, settings
     if sid:
-        ledger.bind_process(sid)
+        ledger.bind_process(sid, str(p.get("cwd") or "") or None)
     if _host(p) == "claude":
         try:
             from . import window
