@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.13.0
+
+The guard settles three kinds of command by rule, with no model call: reading (every part of a
+pipeline or chain), writing only under a temporary folder, and editing files git tracks in the
+project by `sed -i` or a Python script that only reads and writes files there. On a week of coding
+sessions that was 27% of the commands that went to the model, at under 2 ms each. The model answers
+one question first, destructive, and the other two only from p 0.40. When it gives no verdict in
+time, a command that can delete, push or reach another machine is asked about (or refused where no
+prompt can appear); any other runs and counts as unchecked. Each guard row carries the check's own
+time, and `jev report` uses it. Screen, trim and inspect default to `auto`: on with a hosted judge,
+off on a local model.
+
 ## 1.12.0
 
 jev keeps Claude Code's auto-compact window at 400K (`compact_window`, plugin option and
