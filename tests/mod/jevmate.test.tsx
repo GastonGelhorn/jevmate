@@ -474,6 +474,19 @@ describe('the guard where no prompt can appear', () => {
     expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })).decision).toBe('ask')
   })
 
+  test('a command jev could not judge in time is put to the person as such', async ($, on) => {
+    world(on, { ...fresh(), judge: { decision: 'ask', why: 'unjudged', p: 1, outside: null, requested: null, ask_at: 0.6, deny_at: 0.9 } })
+    let asked = ''
+    on('tool.check', () => ({ decision: 'allow' as const }))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_$, e) => {
+      asked = e.questions[0].question
+      return { result: { questions: e.questions, answers: { [e.questions[0].question]: 'Refuse' } } }
+    })
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+    expect((await $.tool.check({ tool: 'Bash', input: { command: 'git push origin main' } })).decision).toBe('deny')
+    expect(asked).toContain('could not be judged in time')
+  })
+
   test('a dismissed question refuses the command', async ($, on) => {
     world(on, { ...fresh(), judge: RISKY })
     on('tool.check', () => ({ decision: 'allow' as const }))

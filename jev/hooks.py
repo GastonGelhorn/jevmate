@@ -31,6 +31,7 @@ import time
 SAFE = re.compile(
     r"^\s*(ls|cat|head|tail|wc|grep|rg|find|fd|echo|printf|pwd|which|type|file|stat|du|df|env|printenv|date|whoami|id|uname|tree|less|"
     r"git\s+(status|log|diff|show|branch|remote|rev-parse|describe|blame|stash\s+list|check-ignore)|python3?\s+-m\s+py_compile|jev|shasum|md5|sha256sum|diff|cmp)\b")
+MORE_AT = 0.40  # p(destructive) from which the guard also asks whether the command reaches outside and was asked for
 RISKY = re.compile(r"[>|;&`$]|\b(rm|mv|dd|mkfs|chmod|chown|kill|pkill|curl|wget|sudo|truncate|drop|delete|push|reset|rebase|checkout|clean|prune|purge|format|shred)\b"
                    r"|--force|--hard|\s-[a-zA-Z]*f")
 REMOTE = re.compile(r"\b(curl|wget|gh\s+(pr|issue|api|release|gist)\b|https?://)")
@@ -329,7 +330,7 @@ def _judge(mode: str, cmd: str) -> int:
     deny_at = float(_opt("GUARD_DENY", "JEV_GUARD_DENY", "0.90"))
     pd, why = float(entry.get("p") or 0), entry.get("why")
     strict = _opt("GUARD_MODE", "JEV_GUARD_MODE", "ask") == "strict"
-    asks = why == "project-rule" or pd >= deny_at or (strict and (pd >= ask_at or why == "unrequested"))
+    asks = why in ("project-rule", "unjudged") or pd >= deny_at or (strict and (pd >= ask_at or why == "unrequested"))
     if asks:
         ledger.log_hook("guard", {"cmd": shown[:200], "p": round(pd, 3), "mode": "bypassPermissions", "decision": "ask", "via": "mod", **({"why": why} if why else {})})
     return out(decision="ask" if asks else "-", why=why, p=round(pd, 3), outside=entry.get("outside"), requested=entry.get("requested"),
@@ -373,6 +374,12 @@ def guard() -> int:
             _save_pending(shown, {"p": 1.0, "why": "project-rule", "reason": reason})
             ledger.log_hook("guard", {"cmd": shown[:200], "decision": "-", "why": "project-rule", "mode": perm, "held": "mod"})
             return 0
+    from . import shellrules
+    started = time.perf_counter()
+    settled = shellrules.settle(cmd, p.get("cwd") or "")
+    if settled:  # reads only, writes only to a temporary folder, or edits files git tracks here: no question to ask
+        ledger.log_hook("guard", {"cmd": shown[:200], "decision": "-", "why": settled, "ms": round((time.perf_counter() - started) * 1000)})
+        return 0
     if _ran_before(shown):
         ledger.log_hook("guard", {"cmd": shown[:200], "decision": "-", "why": "ran-before"})
         return 0
@@ -380,19 +387,37 @@ def guard() -> int:
     deny_at = float(_opt("GUARD_DENY", "JEV_GUARD_DENY", "0.90"))
     try:
         from .questions import noul
-        request = _last_prompt(p.get("transcript_path"))
         state = {"command": shown[:6000], "cwd": p.get("cwd", "")}
-        qs = {"destructive": noul(DESTRUCTIVE_Q[0], true=DESTRUCTIVE_Q[1], false=DESTRUCTIVE_Q[2]), "outside": noul(OUTSIDE_Q)}
-        if request:  # a third question in the same request: does this command belong to what the person asked for?
-            state["request"] = mask_secrets(request)
-            qs["requested"] = noul(REQUESTED_Q[0], true=REQUESTED_Q[1], false=REQUESTED_Q[2])
         c = _client("hook:guard", "JEV_GUARD_TIMEOUT", "4")
-        r = c.ask(state, qs)
+        r = c.ask(state, {"destructive": noul(DESTRUCTIVE_Q[0], true=DESTRUCTIVE_Q[1], false=DESTRUCTIVE_Q[2])})
         pd = float(r["answers"]["destructive"]["noul"])
-        po = float(r["answers"]["outside"]["noul"])
-        pr = float(r["answers"]["requested"]["noul"]) if "requested" in r["answers"] else None
-    except Exception as e:  # noqa: BLE001  advisory: fail open
-        ledger.log_hook("guard", {"cmd": shown[:200], "err": type(e).__name__})
+        po, pr = 0.0, None
+        if pd >= MORE_AT:  # only a command that might be destructive is worth the other two questions
+            qs = {"outside": noul(OUTSIDE_Q)}
+            request = _last_prompt(p.get("transcript_path"))
+            if request:  # does this command belong to what the person asked for?
+                state["request"] = mask_secrets(request)
+                qs["requested"] = noul(REQUESTED_Q[0], true=REQUESTED_Q[1], false=REQUESTED_Q[2])
+            more = c.ask(state, qs)
+            po = float(more["answers"]["outside"]["noul"])
+            pr = float(more["answers"]["requested"]["noul"]) if "requested" in more["answers"] else None
+    except Exception as e:  # noqa: BLE001
+        row = {"cmd": shown[:200], "err": type(e).__name__, "ms": round((time.perf_counter() - started) * 1000)}
+        if not shellrules.dangerous(cmd):
+            ledger.log_hook("guard", row)
+            return 0  # no verdict on a command no rule marks as dangerous: it runs, and the line counts it
+        # No verdict on a command that can delete, push or reach another machine: it is asked, never waved through.
+        reason = f"jev guard: no verdict in time on a command that can change things beyond this machine's scratch folders — {shown[:160]}"
+        row["why"] = "unjudged"
+        if mod:
+            _save_pending(shown, {"p": 1.0, "why": "unjudged", "reason": reason})
+            row["held"] = "mod"
+        elif mode == "deny" or perm == "bypassPermissions":
+            _emit("PreToolUse", permissionDecision="deny", permissionDecisionReason=reason + " · confirm with the person before running this")
+            row["decision"] = "deny"
+        else:
+            row["decision"] = _ask(p, reason)
+        ledger.log_hook("guard", row)
         return 0
     unrequested = pr is not None and pd >= 0.45 and pr <= 0.25  # somewhat risky, and nobody asked for it
     decision, why, held = None, ("unrequested" if unrequested and pd < ask_at else None), False
@@ -404,7 +429,8 @@ def guard() -> int:
         decision = "deny"
     elif mode == "ask" and perm != "bypassPermissions" and (pd >= ask_at or unrequested):
         decision = "ask"
-    row = {"cmd": shown[:200], "p": round(pd, 3), "outside": round(po, 3), "mode": perm, "decision": decision or "-", "cached": bool(r.get("cached"))}
+    row = {"cmd": shown[:200], "p": round(pd, 3), "outside": round(po, 3), "mode": perm, "decision": decision or "-", "cached": bool(r.get("cached")),
+           "ms": round((time.perf_counter() - started) * 1000)}
     if pr is not None:
         row["requested"] = round(pr, 3)
     if why:

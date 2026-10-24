@@ -83,6 +83,52 @@ class GuardMemoryAndRules(unittest.TestCase):
         self.assertIn("guard.json", json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"])
 
 
+class GuardRulesFirst(unittest.TestCase):
+    def setUp(self):
+        self.home = fresh_home()
+
+    def guard(self, cmd, transport=None, **kw):
+        payload = {"tool_name": "Bash", "tool_input": {"command": cmd}, "permission_mode": "default", "session_id": "abcdef12-0000",
+                   "cwd": str(self.home), **kw}
+        return run(["hook", "guard"], transport=transport, stdin=json.dumps(payload))
+
+    def asked(self, t):
+        return [sorted(json.loads(body)["questions"]) for _, _, body in t.calls]
+
+    def test_what_the_rules_settle_costs_no_question(self):
+        for cmd, why in (("cd /tmp && grep -rn retry . | head -5; wc -l x 2>/dev/null", "read-only"),
+                         ("cat > /tmp/jev-note.txt <<'EOF'\nrm -rf everything\nEOF", "scratch")):
+            code, out, _, t = self.guard(cmd)
+            self.assertEqual((out, t.calls), ("", []), cmd)
+            self.assertEqual(ledger.hook_rows()[-1]["why"], why)
+
+    def test_one_question_first_and_the_other_two_only_for_a_command_that_may_be_destructive(self):
+        code, out, _, t = self.guard("make build-assets")
+        self.assertEqual(self.asked(t), [["destructive"]])
+        code, out, _, t = self.guard("rm -rf yes-build")
+        self.assertEqual(self.asked(t), [["destructive"], ["outside"]])
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertIn("ms", ledger.hook_rows()[-1])
+
+    def test_without_a_verdict_a_dangerous_command_is_not_waved_through(self):
+        code, out, _, _ = self.guard("rm -rf build", transport=FakeTransport([500] * 6), permission_mode="bypassPermissions")
+        decision = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual(decision["permissionDecision"], "deny")
+        self.assertIn("no verdict in time", decision["permissionDecisionReason"])
+        self.assertEqual(ledger.hook_rows()[-1]["why"], "unjudged")
+        code, out, _, _ = self.guard("make build-assets", transport=FakeTransport([500] * 6), permission_mode="bypassPermissions")
+        self.assertNotIn("hookSpecificOutput", json.loads(out or "{}"), "a command no rule marks as dangerous runs, and is counted unchecked")
+        self.assertIn("err", ledger.hook_rows()[-1])
+
+    def test_with_the_mod_an_unjudged_command_is_asked(self):
+        with mock.patch.dict("os.environ", {"JEV_GUARD_MOD": "1"}):
+            code, out, _, _ = self.guard("git push origin main", transport=FakeTransport([500] * 6), permission_mode="bypassPermissions")
+            self.assertNotIn("hookSpecificOutput", json.loads(out or "{}"), "held for the mod, which asks")
+            code, out, _, _ = self.guard("git push origin main", judge=True, permission_mode="bypassPermissions")
+        verdict = json.loads(out)
+        self.assertEqual((verdict["decision"], verdict["why"]), ("ask", "unjudged"))
+
+
 class Route(unittest.TestCase):
     def setUp(self):
         fresh_home()

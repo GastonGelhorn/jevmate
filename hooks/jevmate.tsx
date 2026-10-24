@@ -668,6 +668,7 @@ function pruneMessages(messages: readonly SessionMessage[], changes: Map<string,
 function question(command: string, j: Judge): string {
   const shown = command.length > 160 ? `${command.slice(0, 157)}…` : command
   if (j.why === 'project-rule') return `\`${shown}\` matches a rule in .jev/guard.json. Run it?`
+  if (j.why === 'unjudged') return `\`${shown}\` could not be judged in time, and it can delete, push or reach another machine. Run it?`
   const why: string[] = [`looks destructive (p ${(j.p ?? 0).toFixed(2)})`]
   if ((j.outside ?? 0) >= 0.5) why.push(`reaches outside the project (p ${(j.outside ?? 0).toFixed(2)})`)
   if (j.requested !== null && j.requested !== undefined && j.requested < 0.5) why.push(`does not look like part of what you asked (p ${j.requested.toFixed(2)})`)
