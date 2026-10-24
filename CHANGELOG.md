@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.1
+
+The guard's rules compare resolved paths, so an edit in a project under a linked folder (/tmp on
+macOS) is recognised. `jev report` counts rows written in its own second. After a compaction that
+saved a single result, the block names it in the singular. `evals/e2e_session.py` runs a session
+end to end through the plugin's hooks and MCP server on your judge, in a jev home of its own.
+
 ## 1.13.0
 
 The guard settles three kinds of command by rule, with no model call: reading (every part of a
