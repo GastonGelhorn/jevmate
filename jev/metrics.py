@@ -387,6 +387,7 @@ def jev_side(cwd: str, session_id: str | None, since: str, transcript: Transcrip
     return {"api": api_status(tag), "requests": len(rows), "decisions": sum(r.get("q", 0) for r in rows), "tokens": tokens, "cached": sum(1 for r in rows if r.get("cached")),
             "reads": read_tokens, "overhead": tokens - read_tokens, "trimmed": trimmed, "trim_runs": len(trims), "kept_out": kept_out,
             "paid": paid, "paid_reads": paid_reads, "once": once, "reread": reread, "would": would, "saved": saved,
+            "local_judge": settings.is_local(settings.base_url()),
             "saved_total": saved + routing["subagent_saved"] + compact["saved_usd"] + compact["auto"]["saved_usd"] + compact["window"]["saved_usd"], "asked": asked, "safety": safety, "routing": routing, "compact": compact,
             "pricing": pricing, "agent_price": flat if flat is not None else settings.agent_price(), "compactions": len(transcript.compactions) if transcript else 0,
             "labels": _top(labels), "hook_labels": _top(hook_labels)}

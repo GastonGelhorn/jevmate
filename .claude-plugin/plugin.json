@@ -71,8 +71,13 @@
     "screen_mode": {
       "type": "string",
       "title": "WebFetch screen",
-      "description": "on: add a line of context when fetched content (WebFetch, WebSearch, curl, gh) reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
-      "default": "on"
+      "description": "auto (default): on with a hosted judge (TypeSafe, OpenRouter), off on a model on this machine or another of yours, where each check takes seconds and holds the agent. on: add a line of context when fetched content (WebFetch, WebSearch, curl, gh) reads like instructions aimed at an agent (p >= 0.55). off: no screen.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ]
     },
     "triage_mode": {
       "type": "string",
@@ -117,8 +122,13 @@
     "trim_mode": {
       "type": "string",
       "title": "Trim long command output",
-      "description": "on: command output above ~4,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
-      "default": "on"
+      "description": "auto (default): on with a hosted judge (TypeSafe, OpenRouter), off on a model on this machine or another of yours, where each check takes seconds and holds the agent. on: command output above ~4,000 tokens (JEV_TRIM_MIN) is cut to what carries information; the first and last chunks and anything with an error or warning always stay, the full output is saved to disk and the result says where. Commands that read files (cat, grep, git diff …) and JSON output are never trimmed. off: nothing.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ]
     },
     "compact_window": {
       "type": "string",
@@ -146,8 +156,13 @@
     "inspect_mode": {
       "type": "string",
       "title": "Inspect installed instructions",
-      "description": "on: at session start, skills, plugins, agents and hook files that are new or changed since the last look are read for instructions aimed at an agent and for planted markers; a line of context appears only when something flags. off: nothing. `jev inspect` runs it by hand.",
-      "default": "on"
+      "description": "auto (default): on with a hosted judge (TypeSafe, OpenRouter), off on a model on this machine or another of yours, where each check takes seconds and holds the agent. on: at session start, skills, plugins, agents and hook files that are new or changed since the last look are read for instructions aimed at an agent and for planted markers; a line of context appears only when something flags. off: nothing. `jev inspect` runs it by hand.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ]
     }
   }
 }

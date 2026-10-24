@@ -102,6 +102,16 @@ def _opt(key: str, env: str, default: str) -> str:
     return v if v not in (None, "") else default
 
 
+def _paying(key: str, env: str) -> bool:
+    """A check that pays with a fast judge: auto (the default) is on with a hosted backend and off on a model on this
+    machine or another of yours, where each question takes seconds and a slow check holds the agent; on and off as said."""
+    v = _opt(key, env, "auto").strip().lower()
+    if v == "auto":
+        from . import settings
+        return not settings.is_local(settings.base_url())
+    return v != "off"
+
+
 _READ: dict = {}   # this run's payload, parsed once
 _CALLS: list = []  # this run's requests to the API: None for each one answered, the error for each one that failed
 _FOR_MOD = False   # the mod asked (`judge: true`): it reads the answer, the person does not see it
@@ -642,7 +652,7 @@ def after_bash() -> int:
     notes = []
     updated = None
     stdout = str(resp.get("stdout") or "") if isinstance(resp, dict) and "stdout" in resp else out
-    if not failed and event == "PostToolUse" and _opt("TRIM_MODE", "JEV_TRIM_MODE", "on") != "off" and (isinstance(resp, dict) or codex):
+    if not failed and event == "PostToolUse" and _paying("TRIM_MODE", "JEV_TRIM_MODE") and (isinstance(resp, dict) or codex):
         try:
             res = trim_output(cmd, stdout, p.get("scratchpad_dir"))
         except Exception as e:  # noqa: BLE001
@@ -661,7 +671,7 @@ def after_bash() -> int:
                 ledger.log_hook("triage", {"cmd": shown[:200], "noted": True})
         except Exception as e:  # noqa: BLE001
             ledger.log_hook("triage", {"cmd": shown[:200], "err": type(e).__name__})
-    if _opt("SCREEN_MODE", "JEV_SCREEN_MODE", "on") != "off" and REMOTE.search(cmd) and len(out) >= 80:
+    if _paying("SCREEN_MODE", "JEV_SCREEN_MODE") and REMOTE.search(cmd) and len(out) >= 80:
         note = screen_text(out, cmd[:200])
         if note:
             notes.append(note)
@@ -686,7 +696,7 @@ def after_bash() -> int:
 # ---------------------------------------------------------------- WebFetch / WebSearch
 
 def screen() -> int:
-    if _opt("SCREEN_MODE", "JEV_SCREEN_MODE", "on") == "off":
+    if not _paying("SCREEN_MODE", "JEV_SCREEN_MODE"):
         return 0
     p = _payload()
     if not p or p.get("tool_name") not in ("WebFetch", "WebSearch"):
@@ -857,7 +867,7 @@ def session_start() -> int:
     if sid:
         ledger.touch_session(sid, p.get("cwd") or "", p.get("transcript_path"))
     warning = ""
-    if _opt("INSPECT_MODE", "JEV_INSPECT_MODE", "on") != "off":
+    if _paying("INSPECT_MODE", "JEV_INSPECT_MODE"):
         try:  # only files that are new or changed since the last look are sent; most sessions send none
             from .inspect import inspect, roots
             rows, sent = inspect(_client("hook:inspect", "JEV_INSPECT_TIMEOUT", "15"), roots(p.get("cwd") or None))

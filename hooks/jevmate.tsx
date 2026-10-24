@@ -79,6 +79,7 @@ type Compaction = {
 type Change = { id: string; kind: 'result' | 'input'; text?: string; input?: Record<string, unknown> }
 type Routing = { subagents: number; subagent_saved: number; subagent_spent: number; effort_turns: number; effort_cache: 'keeps' | 'rewrites' | null }
 type JevSide = {
+  local_judge?: boolean
   requests: number
   decisions: number
   tokens: number
@@ -133,7 +134,7 @@ type Routed = { parent: string; model: string; kind: string }
 type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
 // Module state. A reload starts it over; nothing here is worth keeping past that.
-let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off', trimMode: 'on', compactMode: 'off' }
+let cfg = { guardMode: 'ask', bandMode: 'on', evidenceLine: 'on', routeMode: 'off', routeConf: 0.8, subagentModel: 'off', trimMode: 'auto', compactMode: 'off' }
 let optionEnv: Record<string, string> = {}
 let sessionId = ''
 let cwd = ''
@@ -709,7 +710,7 @@ export const register: Register = (on, options) => {
     routeMode: route === 'model' ? 'hint' : route, // off · hint · effort; a main turn's model is not switched (its cache would be re-written)
     routeConf: Number(opt('route_conf', '0.80')) || 0.8,
     subagentModel: opt('subagent_model', 'off'), // off · sonnet · haiku
-    trimMode: opt('trim_mode', 'on'),
+    trimMode: opt('trim_mode', 'auto'),
     compactMode: opt('compact_mode', 'off'), // off · on · auto (on, plus compactions this module starts)
   }
   // The plugin's options reach the jev process the way Claude Code hands them to a hook command.
@@ -940,7 +941,7 @@ export const register: Register = (on, options) => {
     const ro = j.routing
     const sub = summary?.subagents
     const filled = share === null ? 0 : Math.round(share * bar)
-    const trimOn = cfg.trimMode !== 'off'
+    const trimOn = cfg.trimMode === 'on' || (cfg.trimMode === 'auto' && !j.local_judge)
     const subagentOn = cfg.subagentModel === 'sonnet' || cfg.subagentModel === 'haiku'
     const effortOn = cfg.routeMode === 'effort'
     const compactOn = cfg.compactMode === 'on' || cfg.compactMode === 'auto'
@@ -976,7 +977,14 @@ export const register: Register = (on, options) => {
           { text: trimOn ? 'on' : 'off', bold: true, ...(trimOn ? { color: GOOD } : {}) },
           j.trimmed
             ? { text: ` · ${k(j.trimmed)} tokens of command output kept out in ${plural(j.trim_runs, 'run')}`, dim: true }
-            : { text: trimOn ? ' · no command output over ~4k tokens yet' : ' · long command output reaches the context whole', dim: true },
+            : {
+                text: trimOn
+                  ? ' · no command output over ~4k tokens yet'
+                  : cfg.trimMode === 'auto'
+                  ? ' · off on the local model, where judging a long output takes longer than reading it'
+                  : ' · long command output reaches the context whole',
+                dim: true,
+              },
         ])}
         {row('  subagents', [
           { text: subagentOn ? `on, ${cfg.subagentModel}` : 'off', bold: true, ...(subagentOn ? { color: GOOD } : {}) },
