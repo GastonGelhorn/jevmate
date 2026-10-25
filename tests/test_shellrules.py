@@ -64,16 +64,23 @@ class Settle(unittest.TestCase):
         settled, annotated = shellrules.read(edit + "\npython3 -m unittest discover -s tests 2>&1 | tail -20; git status --short",
                                              str(self.repo))
         self.assertIsNone(settled)
-        self.assertNotIn("open(p,'w')", annotated)
-        self.assertIn("[2 lines, read by the rules: it only reads and edits files git tracks in this project]", annotated)
-        self.assertIn("python3 -m unittest discover -s tests 2>&1 | tail -20; git status --short", annotated)
-        self.assertTrue(annotated.endswith("# read by the rules except `python3 -m unittest discover -s tests 2>&1`: the rest only "
-                                           "reads or edits files git tracks in this project"), annotated)
+        self.assertEqual(annotated, "[python3 - on src/a.py, 2 lines, read by the rules: it only reads and edits files git tracks in this "
+                                    "project]\npython3 -m unittest discover -s tests 2>&1 | tail -20; git status --short")
+        _, annotated = shellrules.read("sed -i '/x = 1/d' src/a.py && npm test", str(self.repo))
+        self.assertEqual(annotated, "[sed -i on src/a.py, read by the rules: it only reads and edits files git tracks in this project] "
+                                    "&& npm test")
         # What the rules could not read reaches the model whole, here-document included.
         unread = "python3 - <<'E'\nimport shutil\nshutil.rmtree('src')\nE\nnpm test"
         self.assertEqual(shellrules.read(unread, str(self.repo)), (None, None))
-        _, annotated = shellrules.read("echo 'rm -rf ~' > /tmp/a.sh && sh /tmp/a.sh", str(self.repo))
-        self.assertTrue(annotated.startswith("echo 'rm -rf ~' > /tmp/a.sh && sh /tmp/a.sh\n# read by the rules except `sh /tmp/a.sh`"))
+        # So does a temporary file that the unread part goes on to use.
+        for cmd in ("echo 'rm -rf ~' > /tmp/a.sh && sh /tmp/a.sh", "cat > /tmp/a.sh <<'E'\nrm -rf ~\nE\ncd /tmp && bash a.sh",
+                    "F=/tmp/a.sh; echo 'rm -rf ~' > $F; bash $F"):
+            self.assertEqual(shellrules.read(cmd, str(self.repo)), (None, None), cmd)
+        with mock.patch.object(shellrules, "scratch_roots", return_value=["/nonexistent-scratch"]):  # the test repo is in $TMPDIR
+            self.assertEqual(shellrules.read("cat >> src/run.sh <<'E'\nrm -rf ~\nE\nbash src/run.sh", str(self.repo)), (None, None))
+        _, annotated = shellrules.read("cat > /tmp/notes.txt <<'E'\nhello\nE\nnpm test", str(self.repo))
+        self.assertEqual(annotated, f"[cat on {os.path.realpath('/tmp/notes.txt')}, 1 line, read by the rules: it writes only under a "
+                                    "temporary folder]\nnpm test")
         self.assertEqual(shellrules.read(edit, str(self.repo)), ("project-edit", None))
 
     def test_a_project_under_a_linked_folder(self):

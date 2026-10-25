@@ -6,9 +6,9 @@ tracks inside the project, by `sed -i` or by a Python script on stdin that only 
 files there (no deletion, no network, no other process, nothing outside the project). The last is
 undone by `git checkout`, and so is appending to a tracked file with `cat`, `echo` or `printf`.
 Anything the rules cannot read (a command substitution, an unknown variable, a here-document left
-open, a program they do not know) goes to the model, and `read()` hands it only that part: a
-here-document the rules settled is replaced by a note saying what it does, and a closing line names
-the parts they could not read.
+open, a program they do not know) goes to the model, and `read()` hands it only that part: an edit
+or temporary write the rules settled is a note where it stands, unless the rest goes on to use what
+it wrote.
 """
 
 from __future__ import annotations
@@ -136,7 +136,8 @@ def _tracked(root: str, paths: list[str]) -> bool:
 
 
 def _python_edit(script: str, cwd: str, root: str, scratch: list[str]) -> list[str] | None:
-    """The files a Python script on stdin may write, when it only reads and writes files: None otherwise."""
+    """The files a Python script on stdin may write (in the project or a temporary folder), when it only reads and
+    writes files: None otherwise."""
     if PY_FORBIDDEN.search(script):
         return None
     for m in PY_IMPORT.finditer(script):
@@ -153,8 +154,7 @@ def _python_edit(script: str, cwd: str, root: str, scratch: list[str]) -> list[s
         p = _abs(os.path.expanduser(s), cwd)
         if ".." in Path(s).parts or not (_under(p, [root]) or _under(p, scratch)):
             return None
-        if _under(p, [root]):
-            paths.append(p)
+        paths.append(p)
     return paths
 
 
@@ -164,48 +164,49 @@ def settle(cmd: str, cwd: str) -> str | None:
     return read(cmd, cwd)[0]
 
 
-# What the model is told in place of a here-document the rules have read.
+# What the model is told in place of a segment the rules have read.
 NOTES = {"project-edit": "read by the rules: it only reads and edits files git tracks in this project",
-         "scratch": "read by the rules: it is written only under a temporary folder",
-         "read-only": "read by the rules: it is only printed"}
+         "scratch": "read by the rules: it writes only under a temporary folder"}
 
 
 def read(cmd: str, cwd: str) -> tuple[str | None, str | None]:
-    """(what `settle` answers, the command for the model). When only part of the command is settled, the model
-    is given the command with the here-documents the rules read replaced by a line saying what they found: a
-    Python script that edits tracked files, followed by a test run the rules cannot read, scored 0.87 as
-    destructive and was refused. The second item is None when no here-document was read."""
+    """(what `settle` answers, the command for the model). When the rules settle part of a command and not the rest,
+    the model is given the rest as written and, in place of each edit or temporary write the rules settled, a note
+    naming the program, its files and what the rules found: `sed -i '/x/d' a.py` reads as deleting something, and the
+    rules already know it only edits a tracked file. Reads stay as written. A file that a part the rules could not read
+    goes on to use (`cat > /tmp/x.sh <<E … E; bash /tmp/x.sh`) stays whole, body included. The second item is None
+    unless something was replaced."""
     walked = _walk(cmd, cwd)
     if not walked:
         return None, None
-    kinds = {kind for kind, _, _ in walked}
+    kinds = {kind for kind, *_ in walked}
     if None not in kinds:
         for kind in ("project-edit", "scratch", "read-only"):
             if kind in kinds:
                 return kind, None
-    notes = {i: NOTES[kind] for kind, bodies, _ in walked if kind for i in bodies}
-    found = [kind for kind, _, _ in walked if kind]
-    if not found:
+    if kinds == {None}:
         return None, None
-    lines, out, i, k = cmd.split("\n"), [], 0, 0
-    while i < len(lines):
-        out.append(lines[i])
-        i += 1
-        for m in HEREDOC.finditer(out[-1]):
-            body = []
-            while i < len(lines) and lines[i].strip() != m.group(2):
-                body.append(lines[i])
-                i += 1
-            out.extend([f"[{len(body)} lines, {notes[k]}]"] if k in notes else body)
-            if i < len(lines):
-                out.append(lines[i])
-                i += 1
-            k += 1
-    rest = " ; ".join(text for kind, _, text in walked if kind is None)
-    did = [d for kind, d in (("read-only", "only reads"), ("scratch", "writes only under a temporary folder"),
-                             ("project-edit", "edits files git tracks in this project")) if kind in found]
-    out.append(f"# read by the rules except `{rest}`: the rest " + ", ".join(did[:-1]) + (" or " if len(did) > 1 else "") + did[-1])
-    return None, "\n".join(out)
+    unread = " ".join(text for kind, _, text, _, _ in walked if kind is None)
+
+    def used(paths: list[str]) -> bool:
+        # A file the unread part names, or might name through a variable, is shown as written.
+        return "$" in unread or any(q in unread or os.path.basename(q) in unread for q in paths)
+
+    parts, replaced, base = [], False, os.path.realpath(cwd)
+    for kind, mine, text, wrote, op in walked:
+        if kind in NOTES and not used(wrote):
+            files = sorted({os.path.relpath(q, base) if _under(q, [base]) else q for q in wrote})
+            words = text.split(" ")
+            label = " ".join(words[:2]) if words[:2] in (["sed", "-i"], ["python3", "-"], ["python", "-"]) else words[0]
+            lines = sum(body.count("\n") + 1 for _, body in mine)
+            parts.append(f"[{label}" + (f" on {', '.join(files)}" if files else "") + (f", {lines} line{'s' * (lines > 1)}" if lines else "")
+                         + f", {NOTES[kind]}]")
+            replaced = True
+        else:
+            parts.append(text + "".join(f"\n{body}\n{delim}" for delim, body in mine))
+        # After a here-document the next segment starts on a new line, as an agent writes it.
+        parts.append(("\n" if op == ";" else f"\n{op} ") if mine else ("; " if op == ";" else f" {op} "))
+    return None, ("".join(parts).rstrip("; \n") if replaced else None)
 
 
 def _render(seg: list[str]) -> str:
@@ -221,9 +222,10 @@ def _render(seg: list[str]) -> str:
     return " ".join(out)
 
 
-def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
-    """For each segment of the command (split at ; && || | &): its kind, None when the rules cannot settle it,
-    the indices of the here-documents it reads, and its text. None when the rules cannot read the command at all."""
+def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[tuple[str, str]], str, list[str], str]] | None:
+    """For each segment of the command (split at ; && || | &): its kind, None when the rules cannot settle it, the
+    here-documents it reads (delimiter, body), its text, the files it writes when settled, and the operator after it.
+    None when the rules cannot read the command at all."""
     if not cmd or not cwd:
         return None
     split = _split_heredocs(cmd)
@@ -236,12 +238,14 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
     scratch = scratch_roots()
     env: dict[str, str] = {}
     here = cwd
-    walked: list[tuple[str | None, list[int], str]] = []
+    walked: list[tuple[str | None, list[tuple[str, str]], str, list[str], str]] = []
     segment: list[str] = []
     root: str | None = None
+    wrote: list[str] = []  # what the segment just judged writes
 
     def judge(seg: list[str], docs: list[str]) -> str | None:
         nonlocal here, root
+        wrote.clear()
         words, targets, heredoc = [], [], None
         appends: set[str] = set()
         body_iter = iter(docs)
@@ -285,6 +289,7 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
             return None
         written = [_abs(o, here) for o in outs if o != "/dev/null"]
         appended = {_abs(_expand(t, env), here) for t in appends}
+        wrote.extend(written)
         if not expanded:
             return "read-only" if not written else ("scratch" if all(_under(w, scratch) for w in written) else None)
         prog = os.path.basename(expanded[0])
@@ -336,6 +341,7 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
             files = [a for a in args if not a.startswith("-")]
             dests = files if prog in ("tee", "mkdir", "touch") else files[-1:] if prog == "cp" else []
             if all(_under(_abs(d, here), scratch) for d in dests):
+                wrote.extend(_abs(d, here) for d in dests)
                 return "scratch"
             return None
         if prog == "sed":  # sed -i: an edit; the files must be git-tracked inside the project
@@ -343,6 +349,7 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
             files = [f for f in files if os.path.exists(f)]
             root = root or _git_root(here)
             if root and files and all(_under(f, [root]) for f in files) and _tracked(root, files):
+                wrote.extend(files)
                 return "project-edit"
             return None
         if PYTHONS.match(prog) and heredoc is not None and [a for a in args if a not in ("-I", "-u", "-B")] == ["-"]:
@@ -350,7 +357,8 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
             if not root:
                 return None
             paths = _python_edit(heredoc, here, root, scratch)
-            if paths is not None and _tracked(root, paths):
+            if paths is not None and _tracked(root, [q for q in paths if _under(q, [root])]):
+                wrote.extend(paths)
                 return "project-edit"
             return None
         return None
@@ -359,10 +367,13 @@ def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
     for t in tokens + [";"]:
         if t in OPERATORS:
             if segment:
-                count = sum(1 for w in segment if w in ("<<", "<<-"))
-                mine = list(range(used, used + count))
-                used += count
-                walked.append((judge(segment, [bodies[n] for n in mine if n < len(bodies)]), mine, _render(segment)))
+                delims = [segment[i + 1] for i, w in enumerate(segment[:-1]) if w in ("<<", "<<-")]
+                docs = [bodies[n] for n in range(used, used + len(delims)) if n < len(bodies)]
+                used += len(delims)
+                kind = judge(segment, docs)
+                walked.append((kind, list(zip(delims, docs)), _render(segment), list(wrote) if kind else [], t))
+            elif walked and t != ";":
+                walked[-1] = walked[-1][:4] + (t,)
             segment = []
         else:
             segment.append(t)

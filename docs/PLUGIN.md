@@ -53,9 +53,10 @@ plugin's settings (`/config`) or the environment.
   script on stdin that only reads and writes files there (no deletion, no network, no other process,
   no path outside the project; undone by `git checkout`), or by appending to a tracked file with
   `cat`, `echo` or `printf`. A command substitution, a variable the rules cannot expand or a program
-  they do not know goes to the model, which reads only that part: a here-document the rules settled
-  is replaced by a note saying what it does, and the last line names the parts they could not read
-  (the ledger row says `read: partly`). It answers one yes/no first,
+  they do not know goes to the model, which reads only that part: each edit or temporary write the
+  rules settled is replaced, where it stands, by a note naming the program, its files and what the
+  rules found, and the ledger row says `read: partly`. A file that the rest goes on to use, by its name
+  or through a variable (`cat > /tmp/x.sh <<E … E; bash /tmp/x.sh`), stays whole, body included. It answers one yes/no first,
   destructive; only from p >= 0.40 two more follow: outside the project, and part of what the person
   last asked for (read from the transcript). `ask` at p(destructive) >= 0.60, and also at p >= 0.45
   when the command is not part of the request (p <= 0.25); never `allow`; `deny` at p >= 0.90 with

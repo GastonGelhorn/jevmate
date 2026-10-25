@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.13.5
+
+The guard's model reads each edit or temporary write the rules settled as a note where it stands, naming
+the program, its files and what the rules found (`[sed -i on tests/test_api.py, read by the rules: it
+only reads and edits files git tracks in this project] && python3 -m unittest`); reads stay as written.
+A file that a part the rules could not read goes on to use (by its name, or through a variable) stays
+whole, body included, so the model reads the script that runs. On the commands of a coding session, an in-place edit followed by a
+test run reads at p 0.11 to 0.34, and `rm -rf`, `git push --force` or a written script that deletes
+read at 0.95 to 0.99.
+
 ## 1.13.4
 
 When the rules settle part of a command and not the rest, the guard's model reads only the rest: a
