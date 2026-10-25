@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _fake  # noqa: F401  puts the repository on the path
 from jev import shellrules
@@ -49,6 +50,31 @@ class Settle(unittest.TestCase):
         self.assertEqual(self.settle("sed -i '' 's/x = 1/x = 2/' src/a.py"), "project-edit")
         prose = "python3 - <<'EOF'\np='src/a.py'\ns=open(p).read()\ns=s.replace('x', '/// Runs a command, draining stdout')\nopen(p,'w').write(s)\nEOF"
         self.assertEqual(self.settle(prose), "project-edit", "a string with spaces is text, not a path")
+
+    def test_appending_to_a_tracked_file(self):
+        with mock.patch.object(shellrules, "scratch_roots", return_value=["/nonexistent-scratch"]):  # the test repo is in $TMPDIR
+            self.assertEqual(self.settle("cat >> src/a.py <<'EOF'\n\ny = 2\nEOF"), "project-edit")
+            self.assertEqual(self.settle("echo 'y = 2' >> src/a.py && git diff --stat"), "project-edit")
+            for cmd in ("cat >> notes.txt <<'EOF'\nx\nEOF", "echo x >> ~/.bashrc", "cat > src/a.py <<'EOF'\nx\nEOF",
+                        "tee -a src/a.py < /dev/null"):
+                self.assertIsNone(self.settle(cmd), cmd)
+
+    def test_the_model_reads_only_what_the_rules_could_not(self):
+        edit = "python3 - <<'E'\np='src/a.py'; s=open(p).read()\nopen(p,'w').write(s.replace('x', 'y'))\nE"
+        settled, annotated = shellrules.read(edit + "\npython3 -m unittest discover -s tests 2>&1 | tail -20; git status --short",
+                                             str(self.repo))
+        self.assertIsNone(settled)
+        self.assertNotIn("open(p,'w')", annotated)
+        self.assertIn("[2 lines, read by the rules: it only reads and edits files git tracks in this project]", annotated)
+        self.assertIn("python3 -m unittest discover -s tests 2>&1 | tail -20; git status --short", annotated)
+        self.assertTrue(annotated.endswith("# read by the rules except `python3 -m unittest discover -s tests 2>&1`: the rest only "
+                                           "reads or edits files git tracks in this project"), annotated)
+        # What the rules could not read reaches the model whole, here-document included.
+        unread = "python3 - <<'E'\nimport shutil\nshutil.rmtree('src')\nE\nnpm test"
+        self.assertEqual(shellrules.read(unread, str(self.repo)), (None, None))
+        _, annotated = shellrules.read("echo 'rm -rf ~' > /tmp/a.sh && sh /tmp/a.sh", str(self.repo))
+        self.assertTrue(annotated.startswith("echo 'rm -rf ~' > /tmp/a.sh && sh /tmp/a.sh\n# read by the rules except `sh /tmp/a.sh`"))
+        self.assertEqual(shellrules.read(edit, str(self.repo)), ("project-edit", None))
 
     def test_a_project_under_a_linked_folder(self):
         if os.path.realpath("/tmp") == "/tmp":

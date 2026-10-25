@@ -4,8 +4,11 @@ Three kinds are settled: a command that only reads (lists, prints, searches, sho
 that writes only under a temporary folder (a scratchpad, $TMPDIR, /tmp), and an edit of files git
 tracks inside the project, by `sed -i` or by a Python script on stdin that only reads and writes
 files there (no deletion, no network, no other process, nothing outside the project). The last is
-undone by `git checkout`. Anything the rules cannot read (a command substitution, an unknown
-variable, a here-document left open, a program they do not know) goes to the model as before.
+undone by `git checkout`, and so is appending to a tracked file with `cat`, `echo` or `printf`.
+Anything the rules cannot read (a command substitution, an unknown variable, a here-document left
+open, a program they do not know) goes to the model, and `read()` hands it only that part: a
+here-document the rules settled is replaced by a note saying what it does, and a closing line names
+the parts they could not read.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 ASSIGN = re.compile(r"^([A-Za-z_]\w*)=(.*)$", re.S)
 VAR = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
 OPERATORS = {";", "&&", "||", "|", "&", "|&"}
+REDIRECTS = {">", ">>", ">|", "&>", "&>>", ">&", "<&", "<", "<<", "<<-"}
 
 # Commands that may change things outside a scratch folder: what the guard asks about when it cannot get a verdict.
 DANGER = re.compile(r"\brm\s+-\w*[rf]|\bgit\s+(push|reset\s+--hard|clean\s+-\w*f|filter-branch|filter-repo|rebase|checkout\s+--\s|branch\s+-D)\b"
@@ -157,6 +161,69 @@ def _python_edit(script: str, cwd: str, root: str, scratch: list[str]) -> list[s
 def settle(cmd: str, cwd: str) -> str | None:
     """"read-only", "scratch" or "project-edit" when the rules can tell what the command does and it is one of those;
     None for anything else, which goes to the model."""
+    return read(cmd, cwd)[0]
+
+
+# What the model is told in place of a here-document the rules have read.
+NOTES = {"project-edit": "read by the rules: it only reads and edits files git tracks in this project",
+         "scratch": "read by the rules: it is written only under a temporary folder",
+         "read-only": "read by the rules: it is only printed"}
+
+
+def read(cmd: str, cwd: str) -> tuple[str | None, str | None]:
+    """(what `settle` answers, the command for the model). When only part of the command is settled, the model
+    is given the command with the here-documents the rules read replaced by a line saying what they found: a
+    Python script that edits tracked files, followed by a test run the rules cannot read, scored 0.87 as
+    destructive and was refused. The second item is None when no here-document was read."""
+    walked = _walk(cmd, cwd)
+    if not walked:
+        return None, None
+    kinds = {kind for kind, _, _ in walked}
+    if None not in kinds:
+        for kind in ("project-edit", "scratch", "read-only"):
+            if kind in kinds:
+                return kind, None
+    notes = {i: NOTES[kind] for kind, bodies, _ in walked if kind for i in bodies}
+    found = [kind for kind, _, _ in walked if kind]
+    if not found:
+        return None, None
+    lines, out, i, k = cmd.split("\n"), [], 0, 0
+    while i < len(lines):
+        out.append(lines[i])
+        i += 1
+        for m in HEREDOC.finditer(out[-1]):
+            body = []
+            while i < len(lines) and lines[i].strip() != m.group(2):
+                body.append(lines[i])
+                i += 1
+            out.extend([f"[{len(body)} lines, {notes[k]}]"] if k in notes else body)
+            if i < len(lines):
+                out.append(lines[i])
+                i += 1
+            k += 1
+    rest = " ; ".join(text for kind, _, text in walked if kind is None)
+    did = [d for kind, d in (("read-only", "only reads"), ("scratch", "writes only under a temporary folder"),
+                             ("project-edit", "edits files git tracks in this project")) if kind in found]
+    out.append(f"# read by the rules except `{rest}`: the rest " + ", ".join(did[:-1]) + (" or " if len(did) > 1 else "") + did[-1])
+    return None, "\n".join(out)
+
+
+def _render(seg: list[str]) -> str:
+    """A segment as the shell would read it again, for the model."""
+    out: list[str] = []
+    for w in seg:
+        if w in REDIRECTS and out and out[-1].isdigit():
+            out[-1] += w  # 2>&1: the descriptor and its redirection are one word
+        elif w.isdigit() and out and out[-1].endswith((">&", "<&")):
+            out[-1] += w
+        else:
+            out.append(w if w in REDIRECTS else shlex.quote(w))
+    return " ".join(out)
+
+
+def _walk(cmd: str, cwd: str) -> list[tuple[str | None, list[int], str]] | None:
+    """For each segment of the command (split at ; && || | &): its kind, None when the rules cannot settle it,
+    the indices of the here-documents it reads, and its text. None when the rules cannot read the command at all."""
     if not cmd or not cwd:
         return None
     split = _split_heredocs(cmd)
@@ -169,14 +236,15 @@ def settle(cmd: str, cwd: str) -> str | None:
     scratch = scratch_roots()
     env: dict[str, str] = {}
     here = cwd
-    kinds: set[str] = set()
-    body_iter = iter(bodies)
+    walked: list[tuple[str | None, list[int], str]] = []
     segment: list[str] = []
     root: str | None = None
 
-    def judge(seg: list[str]) -> str | None:
+    def judge(seg: list[str], docs: list[str]) -> str | None:
         nonlocal here, root
         words, targets, heredoc = [], [], None
+        appends: set[str] = set()
+        body_iter = iter(docs)
         i = 0
         while i < len(seg):
             t = seg[i]
@@ -184,6 +252,8 @@ def settle(cmd: str, cwd: str) -> str | None:
                 if i + 1 >= len(seg):
                     return None
                 targets.append(seg[i + 1])
+                if t in (">>", "&>>"):
+                    appends.add(seg[i + 1])
                 i += 2
                 continue
             if t in (">&", "<&"):
@@ -214,6 +284,7 @@ def settle(cmd: str, cwd: str) -> str | None:
         if (expanded and expanded[0] is None) or any(o is None for o in outs):
             return None
         written = [_abs(o, here) for o in outs if o != "/dev/null"]
+        appended = {_abs(_expand(t, env), here) for t in appends}
         if not expanded:
             return "read-only" if not written else ("scratch" if all(_under(w, scratch) for w in written) else None)
         prog = os.path.basename(expanded[0])
@@ -232,8 +303,15 @@ def settle(cmd: str, cwd: str) -> str | None:
                 if ASSIGN.match(a):
                     env[ASSIGN.match(a).group(1)] = ASSIGN.match(a).group(2)
             return "read-only"
+        edit = False
         if written and not all(_under(w, scratch) for w in written):
-            return None
+            # `cat >> tests/test_api.py <<'EOF'`: an append to a file git tracks here, undone by git checkout.
+            project = [w for w in written if not _under(w, scratch)]
+            root = root or _git_root(here)
+            if not (prog in ("cat", "echo", "printf") and root and set(project) <= appended
+                    and all(_under(w, [root]) for w in project) and _tracked(root, project)):
+                return None
+            edit = True
         reads = None
         if prog == "git":
             rest = args
@@ -253,7 +331,7 @@ def settle(cmd: str, cwd: str) -> str | None:
                 and not (prog == "uniq" and len([a for a in args if not a.startswith("-")]) > 1):
             reads = "read-only"  # sort -o, tree -o and uniq IN OUT write a file
         if reads:
-            return "scratch" if written else reads
+            return "project-edit" if edit else "scratch" if written else reads
         if prog in WRITERS:
             files = [a for a in args if not a.startswith("-")]
             dests = files if prog in ("tee", "mkdir", "touch") else files[-1:] if prog == "cp" else []
@@ -277,19 +355,15 @@ def settle(cmd: str, cwd: str) -> str | None:
             return None
         return None
 
+    used = 0
     for t in tokens + [";"]:
         if t in OPERATORS:
             if segment:
-                kind = judge(segment)
-                if kind is None:
-                    return None
-                kinds.add(kind)
+                count = sum(1 for w in segment if w in ("<<", "<<-"))
+                mine = list(range(used, used + count))
+                used += count
+                walked.append((judge(segment, [bodies[n] for n in mine if n < len(bodies)]), mine, _render(segment)))
             segment = []
         else:
             segment.append(t)
-    if not kinds:
-        return None
-    for kind in ("project-edit", "scratch", "read-only"):
-        if kind in kinds:
-            return kind
-    return None
+    return walked or None

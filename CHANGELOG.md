@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.4
+
+When the rules settle part of a command and not the rest, the guard's model reads only the rest: a
+here-document they settled (a Python edit of tracked files, a file written under a temporary folder)
+is replaced by a note saying what it does, and a closing line names the parts they could not read.
+A Python edit script followed by `git diff` and a test run reads at p 0.53 and runs; `rm -rf` or
+`git push --force` after a settled part reads at 0.99 and is asked about. Appending to a tracked file with `cat`, `echo` or `printf` counts as an edit
+of the project.
+
 ## 1.13.3
 
 In a session working in a worktree, the MCP tools (`sift`, `tests`, `diff`) read paths from the

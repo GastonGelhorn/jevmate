@@ -386,7 +386,7 @@ def guard() -> int:
             return 0
     from . import shellrules
     started = time.perf_counter()
-    settled = shellrules.settle(cmd, p.get("cwd") or "")
+    settled, annotated = shellrules.read(cmd, p.get("cwd") or "")
     if settled:  # reads only, writes only to a temporary folder, or edits files git tracks here: no question to ask
         ledger.log_hook("guard", {"cmd": shown[:200], "decision": "-", "why": settled, "ms": round((time.perf_counter() - started) * 1000)})
         return 0
@@ -397,7 +397,8 @@ def guard() -> int:
     deny_at = float(_opt("GUARD_DENY", "JEV_GUARD_DENY", "0.90"))
     try:
         from .questions import noul
-        state = {"command": shown[:6000], "cwd": p.get("cwd", "")}
+        # The model reads what the rules could not; a script they already read is a line saying what it does.
+        state = {"command": (mask_secrets(annotated) if annotated else shown)[:6000], "cwd": p.get("cwd", "")}
         c = _client("hook:guard", "JEV_GUARD_TIMEOUT", "4")
         r = c.ask(state, {"destructive": noul(DESTRUCTIVE_Q[0], true=DESTRUCTIVE_Q[1], false=DESTRUCTIVE_Q[2])})
         pd = float(r["answers"]["destructive"]["noul"])
@@ -441,6 +442,8 @@ def guard() -> int:
         decision = "ask"
     row = {"cmd": shown[:200], "p": round(pd, 3), "outside": round(po, 3), "mode": perm, "decision": decision or "-", "cached": bool(r.get("cached")),
            "ms": round((time.perf_counter() - started) * 1000)}
+    if annotated:
+        row["read"] = "partly"
     if pr is not None:
         row["requested"] = round(pr, 3)
     if why:
