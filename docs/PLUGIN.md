@@ -51,7 +51,8 @@ plugin's settings (`/config`) or the environment.
   of a pipeline or a `&&` chain), one that writes only under a temporary folder (a scratchpad,
   `$TMPDIR`, `/tmp`), and an edit of files git tracks inside the project by `sed -i` or by a Python
   script on stdin that only reads and writes files there (no deletion, no network, no other process,
-  no path outside the project; undone by `git checkout`), or by appending to a tracked file with
+  no path outside the project; undone by `git checkout`; read as Python reads it, so code inside a
+  string is text the script writes, not something it runs), or by appending to a tracked file with
   `cat`, `echo` or `printf`. A command substitution, a variable the rules cannot expand or a program
   they do not know goes to the model, which reads only that part: each edit or temporary write the
   rules settled is replaced, where it stands, by a note naming the program, its files and what the

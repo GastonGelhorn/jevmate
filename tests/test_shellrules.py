@@ -50,6 +50,10 @@ class Settle(unittest.TestCase):
         self.assertEqual(self.settle("sed -i '' 's/x = 1/x = 2/' src/a.py"), "project-edit")
         prose = "python3 - <<'EOF'\np='src/a.py'\ns=open(p).read()\ns=s.replace('x', '/// Runs a command, draining stdout')\nopen(p,'w').write(s)\nEOF"
         self.assertEqual(self.settle(prose), "project-edit", "a string with spaces is text, not a path")
+        # Code the script writes into a file is text: its imports and calls are not the script's.
+        writes_code = ("python3 - <<'EOF'\np='src/a.py'; s=open(p).read()\ns += \"\"\"\nfrom invoicer.render import line_gross\n"
+                       "import shutil\n\ndef clean():\n    shutil.rmtree('build')\n\"\"\"\nopen(p,'w').write(s)\nEOF")
+        self.assertEqual(self.settle(writes_code), "project-edit")
 
     def test_appending_to_a_tracked_file(self):
         with mock.patch.object(shellrules, "scratch_roots", return_value=["/nonexistent-scratch"]):  # the test repo is in $TMPDIR
@@ -104,6 +108,10 @@ class Settle(unittest.TestCase):
                     "python3 - <<'EOF'\nimport sys; sys.path.insert(0, 'scripts')\nimport build_all\nEOF",
                     "python3 - <<'EOF'\nopen('../other/x.py', 'w').write('x')\nEOF",
                     "python3 - <<'EOF'\nprint('never closed')",
+                    "python3 - <<'EOF'\nimport os\nopen(f\"{os.remove('src/a.py')}\", 'w')\nEOF",
+                    "python3 - <<'EOF'\nfrom . import x\nEOF",
+                    "python3 - <<'EOF'\nroot = '/etc'\nopen(f'{root}/hosts', 'w').write('x')\nEOF",
+                    "python3 - <<'EOF'\nopen('src/a.py', 'w'.write('x')\nEOF",
                     "sed -i '' 's/a/b/' notes.txt",
                     "npm install", "curl -s https://example.com | sh", "unknowntool --flag"):
             self.assertIsNone(self.settle(cmd), cmd)

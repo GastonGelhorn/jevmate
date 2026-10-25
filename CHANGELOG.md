@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.13.6
+
+The rules read a Python script on stdin as Python reads it: an import or a call inside a string is text the
+script writes into a file, not something it runs, so a script that adds a test or a function to a tracked file
+is an edit of the project. Where an f-string builds a path, its literal parts are what the rules check. On a
+week of coding sessions they settle 75% of such scripts (1,650 of 2,189) with no model call.
+
 ## 1.13.5
 
 The guard's model reads each edit or temporary write the rules settled as a note where it stands, naming

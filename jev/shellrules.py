@@ -13,6 +13,7 @@ it wrote.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shlex
@@ -35,8 +36,6 @@ PY_FORBIDDEN = re.compile(
     r"|\bshutil\b|\bsubprocess\b|\bsocket\b|\burllib\b|\brequests\b|\bhttp\b|\bftplib\b|\bsmtplib\b|\bparamiko\b|\bctypes\b"
     r"|\.\s*(unlink|rmdir|rename|symlink_to|hardlink_to|chmod|touch)\s*\(|__import__|\beval\s*\(|\bexec\s*\(|\bcompile\s*\(|\bimportlib\b"
     r"|\bhome\s*\(|expanduser|\benviron\b|getenv|chdir|\bcwd\s*\(|gettempdir")
-PY_IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.M)
-PY_STRINGS = re.compile(r"""(?:'([^'\n]*)'|"([^"\n]*)")""")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 ASSIGN = re.compile(r"^([A-Za-z_]\w*)=(.*)$", re.S)
 VAR = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
@@ -138,15 +137,24 @@ def _tracked(root: str, paths: list[str]) -> bool:
 def _python_edit(script: str, cwd: str, root: str, scratch: list[str]) -> list[str] | None:
     """The files a Python script on stdin may write (in the project or a temporary folder), when it only reads and
     writes files: None otherwise."""
-    if PY_FORBIDDEN.search(script):
+    # Read as Python reads it: an import or a call inside a string is text the script writes, not something it runs.
+    try:
+        tree = ast.parse(script)
+    except (SyntaxError, ValueError):
         return None
-    for m in PY_IMPORT.finditer(script):
-        names = [m.group(1)] if m.group(1) else [n.strip() for n in m.group(2).split(",")]
-        if any(n.split(".")[0] not in PY_SAFE_IMPORTS for n in names):
-            return None
+    imports = [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
+    imports += [n.module if n.module and not n.level else "." for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    if any(name.split(".")[0] not in PY_SAFE_IMPORTS for name in imports):
+        return None
+    strings = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.append(node.value)
+            node.value = ""  # what an f-string computes stays, as code
+    if PY_FORBIDDEN.search(ast.unparse(tree)):
+        return None
     paths = []
-    for m in PY_STRINGS.finditer(script):
-        s = m.group(1) if m.group(1) is not None else m.group(2)
+    for s in strings:
         if any(ch.isspace() for ch in s) or ("/" not in s and not re.fullmatch(r"[\w.-]+\.\w{1,8}", s)):
             continue  # not a path: prose, a pattern, a fragment of code
         if s.startswith(("http://", "https://")):
