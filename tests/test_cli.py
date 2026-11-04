@@ -191,6 +191,18 @@ class Commands(unittest.TestCase):
         code, out, _, _ = run(["hook", "screen"], stdin=json.dumps(payload))
         self.assertIn("additionalContext", out)
 
+    def test_hooks_status_tail(self):
+        from jev import ledger
+        for i in range(3):
+            ledger.log_hook("guard", {"cmd": f"echo row{i}", "decision": "-"})
+        st = settings.HOME / "settings.json"
+        code, out, _, _ = run(["hooks", "status", "--settings", str(st), "--tail", "0"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("echo row", out)
+        code, out, _, _ = run(["hooks", "status", "--settings", str(st), "--tail", "1"])
+        self.assertIn("echo row2", out)
+        self.assertNotIn("echo row1", out)
+
     def test_statusline_render_and_install(self):
         home = settings.HOME
         st = home / "settings.json"

@@ -158,7 +158,7 @@ def cmd_hooks(args) -> int:
             sc = [r for r in rows if r.get("hook") == "screen"]
             print(f"  log: {settings.HOOKS_LOG} · guard {len(g)} decisions ({sum(1 for r in g if r.get('decision') not in (None, '-'))} asked or denied, "
                   f"{sum(1 for r in g if 'err' in r)} errors) · screen {len(sc)} pages ({sum(1 for r in sc if r.get('warned'))} warned)")
-            for r in rows[-args.tail:]:
+            for r in (rows[-args.tail:] if args.tail > 0 else []):  # rows[-0:] is every row
                 what = r.get("cmd") or r.get("src") or ""
                 print(f"    {r.get('ts', '')[11:]} {r.get('hook', ''):<6} p={r.get('p', '-'):<5} {r.get('decision') or ('warn' if r.get('warned') else '-'):<5} "
                       f"{str(what)[:90]}" + (f"  ERR {r['err']}" if "err" in r else ""))
