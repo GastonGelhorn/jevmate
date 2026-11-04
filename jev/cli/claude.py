@@ -29,6 +29,8 @@ def register(sub) -> None:
                         description="The plugin wires these hooks itself; this command is for a plain CLI install. guard, on Bash before it "
                                     "runs: asks when p(destructive) >= JEV_GUARD_ASK (0.60); never allows; denies only at >= JEV_GUARD_DENY "
                                     "(0.90) and only in bypassPermissions mode or with JEV_GUARD_MODE=deny, where no prompt can appear. "
+                                    "With the plugin's mod loaded (it sets JEV_GUARD_MOD=1), bypassPermissions asks the person instead, "
+                                    "at JEV_GUARD_DENY: JEV_GUARD_ASK does not apply there unless JEV_GUARD_MODE=strict. "
                                     "screen, on WebFetch after it returns: one line of context when p(instructions aimed at an agent) >= "
                                     "JEV_SCREEN_WARN (0.55). Both fail open and log.")
     hk.add_argument("action", nargs="?", choices=["status", "install", "uninstall", "tune"], default="status")
@@ -146,7 +148,9 @@ def cmd_hooks(args) -> int:
         print(f"  guard  (PreToolUse Bash -> ask)        {'installed' if have['PreToolUse'] else 'not installed'}")
         print(f"  screen (PostToolUse WebFetch -> note)  {'installed' if have['PostToolUse'] else 'not installed'}")
         print(f"  command: {launcher()} hook guard|screen   (the plugin wires its own copy; do not install both)")
-        print("  env: JEV_GUARD_ASK=0.60 JEV_GUARD_DENY=0.90 JEV_GUARD_MODE=ask|deny|off · JEV_SCREEN_WARN=0.55 JEV_SCREEN_MODE=auto|on|off")
+        print("  env: JEV_GUARD_ASK=0.60 JEV_GUARD_DENY=0.90 JEV_GUARD_MODE=ask|strict|deny|off · JEV_SCREEN_WARN=0.55 JEV_SCREEN_MODE=auto|on|off")
+        print(f"       JEV_GUARD_MOD={'1' if os.environ.get('JEV_GUARD_MOD') else 'unset'} here: the plugin's mod sets it; with it, bypassPermissions "
+              "asks at JEV_GUARD_DENY, not JEV_GUARD_ASK (JEV_GUARD_MODE=strict: at JEV_GUARD_ASK there too)")
         print("       JEV_TRIM_MODE=auto|on|off JEV_TRIM_MIN=4000 (tokens) · JEV_TRIAGE_MODE=on|off · JEV_INSPECT_MODE=auto|on|off · JEV_ROUTE_MODE=off|hint|effort · JEV_HONESTY_MODE=off|on")
         rows = ledger.hook_rows(None)
         if rows:
@@ -218,6 +222,11 @@ def hooks_tune(args) -> int:
             pairs.append((float(g["p"]), False))
     print(f"guard decisions with a p since {first_ran[:10] if ran else '-'} (when `ran` rows began): {len(guards)} · asked: {len(allowed_after_ask) + len(declined_after_ask)} "
           f"(allowed after the ask: {len(allowed_after_ask)}, declined: {len(declined_after_ask)}) · silent and ran: {silent_ran}")
+    asked_rows = [g for g in guards if g.get("decision") in ("ask", "deny")]
+    via_mod = sum(1 for g in asked_rows if g.get("via") == "mod")
+    if asked_rows and via_mod * 2 > len(asked_rows):
+        print(f"  {via_mod} of {len(asked_rows)} asks came from bypassPermissions through the plugin's mod, which asks at JEV_GUARD_DENY "
+              f"({settings.option('guard_deny', 'JEV_GUARD_DENY', '0.90')}): JEV_GUARD_ASK moves only the other modes")
     if not ran:
         print("no `ran` rows yet: the after-bash hook (plugin 1.2+) records them; come back after a session or two")
         return 0

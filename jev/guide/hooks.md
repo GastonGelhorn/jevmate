@@ -14,13 +14,15 @@ the command part of it.
 - It never answers `allow`. That would bypass the permission rules the person chose.
 - It answers `deny` only at p >= 0.90 (`JEV_GUARD_DENY`) and only where no prompt can appear:
   bypassPermissions mode, or `JEV_GUARD_MODE=deny`. A deny sends the reason to the model, which
-  then has to confirm with the person. With the plugin's mod loaded (Claude Code 2.1.287+), bypass
-  mode asks the person instead.
+  then has to confirm with the person. With the plugin's mod loaded (Claude Code 2.1.287+; it sets
+  `JEV_GUARD_MOD=1`), bypass mode asks the person instead, at the same `JEV_GUARD_DENY` bar:
+  `JEV_GUARD_ASK` does not apply there. Move `JEV_GUARD_DENY`, or set `JEV_GUARD_MODE=strict` to ask
+  at `JEV_GUARD_ASK` in bypass mode too.
 
 Measured before shipping the bars: `git push --force`, `dd`, `find -delete`, `DROP TABLE` scored
 0.95 to 0.96; `rm -rf node_modules` 0.90; `git checkout -- .` and `rm -rf /tmp/scratch` 0.80 to
 0.84; `mv old new` and `docker compose down` 0.65 to 0.69 (the false-positive edge); `npm install`
-and `git commit` 0.13 to 0.18. Raise `JEV_GUARD_ASK` to 0.70 if the click on `mv` annoys.
+and `git commit` 0.13 to 0.18. Raise `JEV_GUARD_ASK` to 0.70 if the click on `mv` annoys (outside bypass mode, see above).
 
 **screen** runs after WebFetch and WebSearch return. One yes/no over the returned text: does it
 contain instructions addressed to an AI assistant or agent. At p >= 0.55 (`JEV_SCREEN_WARN`) one
